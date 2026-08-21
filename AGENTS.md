@@ -45,6 +45,39 @@ Driver={Cupola for Excel};CupolaConnection={friendly connection name};
 ODBC driver must resolve `CupolaConnection` through the same per-user Cupola
 connection and OAuth stores. Keep endpoint and credential material out of M.
 
+## Error reporting and privacy
+
+Cupola uses three separate Sentry projects so failures can be attributed to the
+correct runtime:
+
+- `cupola-excel-office`: Microsoft 365 task pane and custom functions.
+- `cupola-excel-desktop`: the WebView2 workbench inside the Windows add-in.
+- `cupola-excel-xll`: native Excel-DNA/.NET Framework code.
+
+The supplied project DSNs are runtime ingest configuration, not build-service
+credentials. They may be overridden with `VITE_SENTRY_OFFICE_DSN`,
+`VITE_SENTRY_DESKTOP_DSN`, and `VGI_EXCEL_SENTRY_DSN`. Keep the three streams
+separate; do not route all hosts into one Sentry project.
+
+Remote telemetry is error-only and privacy-first. Never send SQL, formulas,
+query results, workbook values, AI prompts or responses, access/refresh tokens,
+API keys, authorization headers, connection URLs/options, or customer-provided
+workbook, worksheet, catalog, schema, table, or connection names. Before-send
+processing must replace arbitrary exception messages with the fixed
+classification vocabulary in `packages/core/src/telemetry.ts` and
+`windows/Vgi.ExcelDna/SentryTelemetry.cs`. Preserve only safe product/build,
+host, HTTPS transport, operation, exception type, and scrubbed stack metadata.
+Detailed redacted diagnostics belong in the existing local logs, not Sentry.
+
+Tracing, replay, Sentry logs/metrics, automatic sessions, breadcrumbs, request
+and user contexts, source context, and client reports remain disabled. Browser
+telemetry is off for local Vite development unless
+`VITE_SENTRY_ENABLE_LOCAL=1`; `VITE_SENTRY_ENABLED=0` and
+`VGI_EXCEL_TELEMETRY=0` are kill switches. The XLL shares Excel's process, so
+keep Sentry's AppDomain unhandled-exception, unobserved-task, and process-exit
+hooks disabled. Capture only explicit Cupola failures; never report exceptions
+from Excel or another add-in.
+
 ## UI conventions
 
 - Workspace order is Query Editor, Ask AI, Catalog, Connections.
@@ -75,6 +108,13 @@ npm run package:office -- --base-url=https://your-production-origin
 The production host must serve WASM correctly and send the COOP/COEP headers
 documented in `docs/development.md`.
 
+Browser source maps are generated only when both `SENTRY_AUTH_TOKEN` and
+`SENTRY_ORG` are present for a release build. The Sentry Vite plugin must remain
+after the other build plugins, upload to the matching Office/desktop project and
+distribution, and delete maps after upload. Never ship source maps in the Office
+deployment, updater, or MSI. `SENTRY_AUTH_TOKEN` is a CI-only secret: never
+commit it, pass it to runtime code, or prefix it with `VITE_`.
+
 Windows artifacts are built by `windows/publish.ps1`. Production signing uses
 its `-CertificateThumbprint` option. The developer updater is always:
 
@@ -100,6 +140,23 @@ npm run test:office-wasm
 `test:office-wasm` is a live network integration against an HTTPS VGI catalog,
 not a deterministic mock. Override it with `CUPOLA_LIVE_VGI_ENDPOINT` when
 needed.
+
+Telemetry changes must add or update deterministic privacy tests. Tests should
+include credentials, endpoints, SQL, local user paths, and customer identifiers
+and assert that none survive in a remote event. Do not send real Sentry events
+from automated tests. Ordinary production builds must contain no `.map` files.
+
+Native code can be cross-compiled with:
+
+```sh
+dotnet build windows/Vgi.Excel.sln -c Release
+```
+
+The .NET Framework reference-assembly package exists to support that build on
+non-Windows hosts. The Excel-DNA `.dna` manifest must explicitly pack `Sentry`
+and its runtime dependencies; a successful DLL compilation alone is not enough.
+The real Windows suite sets `VGI_EXCEL_TELEMETRY=0` so expected failures do not
+pollute production Sentry projects.
 
 Windows/native changes must also be copied to `europa` and exercised from:
 
