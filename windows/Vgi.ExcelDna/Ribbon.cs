@@ -35,13 +35,13 @@ public sealed class VgiRibbon : ExcelRibbon
     public void RefreshCupolaTables(IRibbonControl control)
     {
         try { MessageBox.Show($"Refreshed {WorkbookBridge.RefreshAllSnapshots()} Cupola table(s).", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information); }
-        catch (Exception error) { MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "ribbon.refresh-snapshots"); MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     public void RefreshFormulas(IRibbonControl control)
     {
         try { ((dynamic)ExcelDnaUtil.Application).CalculateFull(); }
-        catch (Exception error) { MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "ribbon.refresh-formulas"); MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     public void ShowDiagnostics(IRibbonControl control) =>

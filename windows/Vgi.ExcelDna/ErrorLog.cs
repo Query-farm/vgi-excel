@@ -7,7 +7,7 @@ internal static class ErrorLog
 {
     public static string LastMessage { get; private set; } = "No VGI XLL error has been recorded.";
 
-    public static void Write(Exception error)
+    public static void Write(Exception error, string operation = "xll")
     {
         var message = OAuthTraceLog.Redact(error.ToString());
         LastMessage = message;
@@ -31,5 +31,6 @@ internal static class ErrorLog
         {
             // Diagnostics must never change the worksheet result.
         }
+        SentryTelemetry.Capture(error, operation);
     }
 }

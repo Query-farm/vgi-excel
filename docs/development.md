@@ -40,6 +40,37 @@ It starts the production preview over trusted HTTPS, verifies cross-origin
 isolation, loads the self-hosted worker/WASM, attaches Open Meteo over VGI, and
 executes SQL. Override the endpoint with `CUPOLA_LIVE_VGI_ENDPOINT`.
 
+### Sentry releases and source maps
+
+The Microsoft 365 app, desktop WebView, and native XLL report to separate Sentry
+projects. Their public ingest DSNs are compiled into production packages and may
+be overridden with `VITE_SENTRY_OFFICE_DSN`,
+`VITE_SENTRY_DESKTOP_DSN`, and `VGI_EXCEL_SENTRY_DSN`. Use
+`VITE_SENTRY_ENVIRONMENT` for the two browser hosts and
+`VGI_EXCEL_SENTRY_ENVIRONMENT` for the XLL. The release name is
+`cupola-excel@<version>+<build>` and the distributions are `office`, `desktop`,
+and `xll`.
+
+Browser source maps are generated only when both `SENTRY_AUTH_TOKEN` and
+`SENTRY_ORG` are present for a production Vite build. The build uploads maps to
+`cupola-excel-office` or `cupola-excel-desktop` (override with
+`SENTRY_OFFICE_PROJECT` or `SENTRY_DESKTOP_PROJECT`) and then deletes the local
+maps, so source maps are not deployed or included in the Windows installer.
+Keep the Sentry organization auth token in CI/repository secrets; never prefix
+it with `VITE_` or put it in an `.env` file committed to this repository.
+
+Telemetry is intentionally error-only: tracing, replay, logs, metrics, automatic
+sessions, and breadcrumbs are disabled. Before-send filters remove request/user
+contexts, SQL, results, prompts/responses, credentials, URLs, workbook metadata,
+customer identifiers, source context, and local user paths. Set
+`VITE_SENTRY_ENABLED=0` at browser build time or
+`VGI_EXCEL_TELEMETRY=0` in the Excel process environment for the native kill
+switch. Local Vite servers report nothing unless
+`VITE_SENTRY_ENABLE_LOCAL=1` is explicitly set.
+The XLL also disables Sentry's process-global unhandled and unobserved-task
+hooks, so it reports only failures explicitly captured by Cupola and never
+exceptions raised by Excel or another add-in in the shared Excel process.
+
 ## Windows Excel-DNA package
 
 The XLL drives the released `haybarn.exe` CLI as a private child process. It

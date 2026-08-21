@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
+$env:VGI_EXCEL_TELEMETRY = '0'
 
 function Run-Step([string] $Name, [scriptblock] $Action) {
     Write-Host "`n== $Name =="

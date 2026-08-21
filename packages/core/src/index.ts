@@ -8,3 +8,4 @@ export * from "./connection.js";
 export * from "./prompt.js";
 export * from "./query-documents.js";
 export * from "./excel-names.js";
+export * from "./telemetry.js";

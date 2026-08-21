@@ -202,7 +202,7 @@ ORDER BY 1, 2, 3";
             RefreshConnections();
             MessageBox.Show(this, "The HTTPS VGI connection was saved.", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception error) { MessageBox.Show(this, error.Message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "connection.save"); MessageBox.Show(this, error.Message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private async Task TestConnection()
@@ -221,7 +221,7 @@ ORDER BY 1, 2, 3";
             if (succeeded) MessageBox.Show(this, message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Information);
             RefreshConnections();
         }
-        catch (Exception error) { MessageBox.Show(this, error.Message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "connection.test"); MessageBox.Show(this, error.Message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private void SignOut()
@@ -232,7 +232,7 @@ ORDER BY 1, 2, 3";
             OAuthClient.SignOut(connection);
             MessageBox.Show(this, "The saved OAuth session was removed.", "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception error) { MessageBox.Show(this, error.Message, "VGI sign-out", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "connection.sign-out"); MessageBox.Show(this, error.Message, "VGI sign-out", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private void RemoveConnection()
@@ -288,7 +288,7 @@ ORDER BY 1, 2, 3";
     {
         if (_lastResult is null) return;
         try { WorkbookBridge.InsertAtActiveCell(_lastResult, "VGI_Result"); }
-        catch (Exception error) { MessageBox.Show(this, error.Message, "Insert VGI result", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { ErrorLog.Write(error, "excel.insert"); MessageBox.Show(this, error.Message, "Insert VGI result", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     private static void ShowResult(DataGridView grid, QueryResult result)

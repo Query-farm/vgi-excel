@@ -23,6 +23,7 @@ internal static class Program
             AgentPromptTests();
             AgentTraceTests(root);
             OAuthTraceTests(root);
+            TelemetryPrivacyTests();
             BridgePolicyTests();
             WorkbookPolicyTests();
             PowerQueryTests();
@@ -173,6 +174,25 @@ internal static class Program
         True(success.Contains("Nearwater &lt;Production&gt;") && !success.Contains("Nearwater <Production>"), "OAuth success page escapes resource content");
         var failure = OAuthCallbackPage.Error("State mismatch", "Nearwater");
         True(failure.Contains("Authentication Failed") && failure.Contains("icon-circle-error"), "OAuth failure page uses the VGI visual treatment");
+    }
+
+    private static void TelemetryPrivacyTests()
+    {
+        var safe = SentryTelemetry.Redact("Bearer abc.def.ghi at https://private.example/vgi from C:\\Users\\person\\Books\\Board.xlsx sheet \"Executive Pay\"");
+        True(!safe.Contains("abc.def.ghi") && !safe.Contains("private.example") && !safe.Contains("person") && !safe.Contains("Executive Pay"), "Sentry telemetry removes credentials, endpoints, local paths, and workbook identifiers");
+        Equal("[query details redacted]", SentryTelemetry.Redact("Binder error while running SELECT salary FROM payroll WHERE employee = 'Ada'"), "Sentry telemetry removes SQL as a unit");
+        Equal("SQL binder error", SentryTelemetry.Classify("Binder Error: column Employee_SSN missing from Payroll"), "Sentry telemetry classifies SQL errors without customer details");
+        Equal("Unexpected application error", SentryTelemetry.Classify("Acme North confidential failure marker"), "Sentry telemetry replaces unknown messages with a fixed classification");
+
+        var previous = Environment.GetEnvironmentVariable("VGI_EXCEL_TELEMETRY");
+        try
+        {
+            Environment.SetEnvironmentVariable("VGI_EXCEL_TELEMETRY", "0");
+            True(!SentryTelemetry.IsEnabledByConfiguration(), "native telemetry kill switch");
+            Environment.SetEnvironmentVariable("VGI_EXCEL_TELEMETRY", "1");
+            True(SentryTelemetry.IsEnabledByConfiguration(), "native telemetry enabled by default DSN");
+        }
+        finally { Environment.SetEnvironmentVariable("VGI_EXCEL_TELEMETRY", previous); }
     }
 
     private static void RibbonTests()

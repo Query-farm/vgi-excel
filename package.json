@@ -2,7 +2,7 @@
   "name": "@query-farm/vgi-excel",
   "private": true,
   "version": "0.4.0",
-  "cupolaBuild": "20260821.1",
+  "cupolaBuild": "20260821.2",
   "workspaces": [
     "apps/office",
     "apps/desktop",
@@ -25,6 +25,7 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.0"
+    "@playwright/test": "^1.55.0",
+    "@sentry/vite-plugin": "^5.4.0"
   }
 }

@@ -41,9 +41,6 @@
               <Component Id="WebScriptAsset" Guid="*" Bitness="always64">
                 <File Source="..\artifacts\xll\web\assets\workbench.js" />
               </Component>
-              <Component Id="WebSourceMapAsset" Guid="*" Bitness="always64">
-                <File Source="..\artifacts\xll\web\assets\workbench.js.map" />
-              </Component>
               <Component Id="WebStyleAsset" Guid="*" Bitness="always64">
                 <File Source="..\artifacts\xll\web\assets\workbench.css" />
               </Component>
@@ -64,7 +61,6 @@
       <ComponentRef Id="UpdateScriptFile" />
       <ComponentRef Id="WebIndexAsset" />
       <ComponentRef Id="WebScriptAsset" />
-      <ComponentRef Id="WebSourceMapAsset" />
       <ComponentRef Id="WebStyleAsset" />
     </Feature>
   </Package>

@@ -1,4 +1,5 @@
 import { formulaService } from "./runtime";
+import { captureError } from "./telemetry";
 
 type CancelableInvocation = CustomFunctions.CancelableInvocation;
 
@@ -15,6 +16,7 @@ export async function query(
     const result = await formulaService.query(sql, blankToUndefined(connection), includeHeaders !== false, controller.signal);
     return excelResult(result);
   } catch (error) {
+    captureError(error, "custom-function.query");
     throw excelError(error);
   }
 }
@@ -30,6 +32,7 @@ export async function value(
   try {
     return (await formulaService.value(sql, blankToUndefined(connection), controller.signal)) ?? "";
   } catch (error) {
+    captureError(error, "custom-function.value");
     throw excelError(error);
   }
 }
@@ -38,6 +41,7 @@ export async function call(functionName: string, ...args: unknown[]): Promise<(s
   try {
     return excelResult(await formulaService.call(functionName, args));
   } catch (error) {
+    captureError(error, "custom-function.call");
     throw excelError(error);
   }
 }

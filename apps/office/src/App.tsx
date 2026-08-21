@@ -13,6 +13,7 @@ import { officeTreeModel, type CatalogObject } from "./catalog-tree";
 import { createFunctionWrappers, forgetSnapshot, goToTable, importSelection, importWorkbookTable, insertResult, listManagedSnapshots, listWorkbookTables, refreshSnapshot, type ManagedSnapshot, type WorkbookWriteOutcome } from "./workbook";
 import { EXCEL_MAX_DATA_ROWS } from "./excel-limits";
 import { QueryTabs } from "./QueryTabs";
+import { captureError } from "./telemetry";
 import { Braces, ChevronDown, ChevronLeft, ChevronRight, Copy, Database, Eye, EyeOff, FileCode2, Folder, FolderOpen, History, Play, Plug, Sparkles, Table2, TableProperties, WandSparkles } from "lucide-react";
 
 type Workspace = "query" | "agent" | "catalog" | "connections";
@@ -52,7 +53,7 @@ export function App(): React.JSX.Element {
   const action: Action = async (label, fn, success = "Done.") => {
     setBusy(true); setNotice(null); retry.current = () => { void action(label, fn, success); };
     try { return await fn(); }
-    catch (error) { setNotice({ kind: "error", message: message(error) }); return undefined; }
+    catch (error) { captureError(error, "ui.action"); setNotice({ kind: "error", message: message(error) }); return undefined; }
     finally { setBusy(false); }
   };
   function updateConnections(value: OfficeConnection[]): void { setConnections(value); saveConnections(value); resetRuntime(); }
@@ -183,7 +184,7 @@ function AgentPanel({ connection, busy, setBusy, setNotice, copy, onCreateQuery 
       if (answer.stagedResult) updateConversation(conversationId, (value) => ({ ...value, staged: answer.stagedResult }));
     } catch (error) {
       if ((error as Error).name === "AbortError") updateLast(conversationId, (value) => ({ ...value, stopped: true, activity: undefined }));
-      else { setNotice({ kind: "error", message: message(error) }); updateLast(conversationId, (value) => ({ ...value, text: value.text || `Error: ${message(error)}` })); }
+      else { captureError(error, "agent.run"); setNotice({ kind: "error", message: message(error) }); updateLast(conversationId, (value) => ({ ...value, text: value.text || `Error: ${message(error)}` })); }
     } finally {
       updateConversation(conversationId, (value) => ({ ...value, agentMessages: session.snapshot(), displayMessages: value.displayMessages.map((message, index) => index === value.displayMessages.length - 1 ? { ...message, streaming: false, activity: undefined } : message) }));
       setController(null); setRunningId(null); setBusy(false);

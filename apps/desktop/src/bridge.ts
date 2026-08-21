@@ -1,4 +1,5 @@
 import type { QueryResult } from "@query-farm/vgi-excel-core";
+import { captureError } from "./telemetry";
 
 export interface DesktopConnection {
   name: string;
@@ -22,7 +23,7 @@ export interface PowerQueryOutcome { query: string; loaded: boolean; sheet?: str
 interface HostResponse { id: number; result?: unknown; error?: string }
 
 let nextId = 1;
-const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+const pending = new Map<number, { method: string; resolve(value: unknown): void; reject(error: Error): void }>();
 
 function receiveHostResponse(value: unknown): void {
   let message = value as HostResponse;
@@ -34,7 +35,11 @@ function receiveHostResponse(value: unknown): void {
   const request = pending.get(message.id);
   if (!request) return;
   pending.delete(message.id);
-  if (message.error) request.reject(new Error(message.error));
+  if (message.error) {
+    const error = new Error(message.error);
+    captureError(error, `bridge.${request.method}`);
+    request.reject(error);
+  }
   else request.resolve(message.result);
 }
 
@@ -50,9 +55,12 @@ export function invoke<T>(method: string, params: Record<string, unknown> = {}, 
   return new Promise<T>((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => {
       if (!pending.delete(id)) return;
-      reject(new Error(`The Excel add-in did not respond to ${method}. Close and reopen Cupola for Excel, then try again.`));
+      const error = new Error(`The Excel add-in did not respond to ${method}. Close and reopen Cupola for Excel, then try again.`);
+      captureError(error, `bridge.${method}.timeout`);
+      reject(error);
     }, timeoutMs);
     pending.set(id, {
+      method,
       resolve: (value) => { globalThis.clearTimeout(timeout); resolve(value as T); },
       reject: (error) => { globalThis.clearTimeout(timeout); reject(error); },
     });

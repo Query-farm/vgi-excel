@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@query-farm/vgi-excel-core": "0.4.0",
+    "@sentry/react": "^10.70.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",

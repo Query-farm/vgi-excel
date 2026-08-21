@@ -12,6 +12,7 @@
   "dependencies": {
     "@haybarn/haybarn-wasm": "1.5.5-rc1",
     "@query-farm/vgi-excel-core": "0.4.0",
+    "@sentry/react": "^10.70.0",
     "apache-arrow": "^17.0.0",
     "lucide-react": "^1.33.0",
     "react": "^19.2.0",

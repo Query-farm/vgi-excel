@@ -58,6 +58,16 @@ Cupola connection name; endpoint, ATTACH options, and OAuth credentials remain
 in Cupola's per-user stores. Point-in-time inserts remain available as formatted
 Excel table snapshots with Cupola-managed refresh metadata.
 
+Production builds report privacy-filtered failures to separate Sentry projects
+for the Microsoft 365 host, desktop WebView, and native XLL. Error reports carry
+only product/build, host, HTTPS transport, operation, exception type, and a
+scrubbed stack trace. Cupola does not send SQL, query results, AI prompts or
+responses, credentials, connection URLs, catalog/table/sheet/workbook names, or
+workbook values. Browser telemetry is disabled on local Vite development servers
+by default; all browser telemetry can be disabled with
+`VITE_SENTRY_ENABLED=0`, and native telemetry with
+`VGI_EXCEL_TELEMETRY=0`.
+
 ## Worksheet API
 
 ```excel

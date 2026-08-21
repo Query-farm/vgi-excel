@@ -6,6 +6,7 @@ import { host, type DesktopConnection, type ManagedSnapshot, type PowerQueryOutc
 import { ChatMarkdown } from "./ChatMarkdown";
 import { AboutDialog, ProductVersion } from "./ProductVersion";
 import { QueryTabs } from "./QueryTabs";
+import { captureError } from "./telemetry";
 import { Notice, Onboarding, TabPanel, WorkspaceTabs, formatSql, resultTsv, type NoticeValue } from "./Ux";
 import { Braces, ChevronDown, ChevronLeft, ChevronRight, Copy, Database, Eye, EyeOff, FileCode2, Folder, FolderOpen, History, Play, Plug, Sparkles, Table2, TableProperties, WandSparkles } from "lucide-react";
 
@@ -335,7 +336,7 @@ function AgentPanel({ connection, setBusy, setNotice, onCreateQuery }: { connect
       }, abort.signal);
     } catch (error) {
       if ((error as Error).name === "AbortError") updateLast((value) => ({ ...value, stopped: true, activity: undefined }));
-      else { setError(error); updateLast((value) => ({ ...value, text: value.text || `Error: ${message(error)}` })); }
+      else { captureError(error, "agent.run"); setError(error); updateLast((value) => ({ ...value, text: value.text || `Error: ${message(error)}` })); }
     } finally {
       updateConversation(conversationId, (value) => ({ ...value, agentMessages: session.snapshot(), displayMessages: value.displayMessages.map((message, index) => index === value.displayMessages.length - 1 ? { ...message, streaming: false, activity: undefined } : message) }));
       setController(null); setRunningId(null); setBusy(false);
