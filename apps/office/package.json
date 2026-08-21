@@ -1,0 +1,32 @@
+{
+  "name": "@query-farm/vgi-excel-office",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@haybarn/haybarn-wasm": "1.5.5-rc1",
+    "@query-farm/vgi-excel-core": "0.4.0",
+    "apache-arrow": "^17.0.0",
+    "lucide-react": "^1.33.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/office-js": "^1.0.605",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "office-addin-dev-certs": "^2.0.3",
+    "typescript": "^6.0.0",
+    "vite": "^7.2.0",
+    "vitest": "^4.0.0"
+  }
+}

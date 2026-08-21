@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/office-js/custom-functions.schema.json",
+  "functions": [
+    {
+      "id": "QUERY",
+      "name": "QUERY",
+      "description": "Runs SQL against a VGI/Haybarn connection and spills the result.",
+      "helpUrl": "https://query.farm",
+      "options": { "cancelable": true },
+      "parameters": [
+        { "name": "sql", "description": "SQL statement to run.", "type": "string" },
+        { "name": "connection", "description": "Optional named connection.", "type": "string", "optional": true },
+        { "name": "include_headers", "description": "Include column names; defaults to TRUE.", "type": "boolean", "optional": true },
+        { "name": "refresh_key", "description": "Change this value to force a refresh.", "type": "any", "optional": true }
+      ],
+      "result": { "dimensionality": "matrix", "type": "any" }
+    },
+    {
+      "id": "VALUE",
+      "name": "VALUE",
+      "description": "Runs SQL that returns exactly one value.",
+      "helpUrl": "https://query.farm",
+      "options": { "cancelable": true },
+      "parameters": [
+        { "name": "sql", "description": "SQL statement to run.", "type": "string" },
+        { "name": "connection", "description": "Optional named connection.", "type": "string", "optional": true },
+        { "name": "refresh_key", "description": "Change this value to force a refresh.", "type": "any", "optional": true }
+      ],
+      "result": { "dimensionality": "scalar", "type": "any" }
+    },
+    {
+      "id": "CALL",
+      "name": "CALL",
+      "description": "Calls a catalog-qualified VGI scalar function over scalar or range arguments.",
+      "helpUrl": "https://query.farm",
+      "parameters": [
+        { "name": "function_name", "description": "Qualified catalog function name.", "type": "string" },
+        { "name": "arguments", "description": "Scalar values or equally-shaped ranges.", "type": "any", "dimensionality": "matrix", "repeating": true }
+      ],
+      "result": { "dimensionality": "matrix", "type": "any" }
+    }
+  ]
+}

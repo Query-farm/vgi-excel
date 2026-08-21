@@ -1,0 +1,30 @@
+{
+  "name": "@query-farm/vgi-excel",
+  "private": true,
+  "version": "0.4.0",
+  "cupolaBuild": "20260821.1",
+  "workspaces": [
+    "apps/office",
+    "apps/desktop",
+    "packages/core"
+  ],
+  "scripts": {
+    "build": "npm run build -w @query-farm/vgi-excel-core && npm run build -w @query-farm/vgi-excel-office && npm run build -w @query-farm/vgi-excel-desktop",
+    "build:desktop": "npm run build -w @query-farm/vgi-excel-desktop",
+    "package:office": "node scripts/package-office.mjs",
+    "check": "node scripts/check-version.mjs && npm run check -w @query-farm/vgi-excel-core && npm run check -w @query-farm/vgi-excel-office && npm run check -w @query-farm/vgi-excel-desktop",
+    "test": "npm run test -w @query-farm/vgi-excel-core && npm run test -w @query-farm/vgi-excel-office && npm run test -w @query-farm/vgi-excel-desktop",
+    "test:ui": "playwright test",
+    "test:office-wasm": "npm run build -w @query-farm/vgi-excel-office && playwright test --config playwright.office-wasm.config.ts",
+    "dev": "npm run dev -w @query-farm/vgi-excel-office",
+    "build:windows": "dotnet build windows/Vgi.Excel.sln -c Release",
+    "publish:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/publish.ps1",
+    "manifest": "node scripts/render-manifest.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

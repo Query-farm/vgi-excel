@@ -1,0 +1,7 @@
+export function ProductVersion({ onAbout }: { onAbout?(): void }): React.JSX.Element {
+  return <footer className="product-footer"><span>Query.Farm</span>{onAbout ? <button className="version-link" onClick={onAbout} aria-label={`About Cupola for Excel version ${__APP_VERSION__}`}>v{__APP_VERSION__}</button> : <span>v{__APP_VERSION__}</span>}</footer>;
+}
+
+export function AboutDialog({ diagnostics, onClose, onCopy }: { diagnostics: string; onClose(): void; onCopy(): void }): React.JSX.Element {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title"><button className="modal-close" aria-label="Close About" onClick={onClose}>×</button><img className="about-mark" src="./cupola-mark.svg" alt=""/><h2 id="about-title">Cupola for Excel</h2><p className="about-version">Version {__APP_VERSION__}<br/>Build {__BUILD_ID__}</p><dl><div><dt>Transport</dt><dd>HTTPS VGI only</dd></div><div><dt>Data delivery</dt><dd>Excel table snapshots</dd></div><div><dt>Publisher</dt><dd>Query.Farm</dd></div></dl><details><summary>Diagnostics</summary><pre>{diagnostics}</pre></details><div className="actions"><button onClick={onCopy}>Copy diagnostics</button><button className="primary" onClick={onClose}>Done</button></div></section></div>;
+}

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Cupola for Excel" Manufacturer="Query Farm LLC" Version="0.4.0" UpgradeCode="9C26AB13-1E7D-4D5F-948D-BBDDC9444346" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer Cupola for Excel installation is already present." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="QueryFarmFolder" Name="Query Farm">
+        <Directory Id="INSTALLFOLDER" Name="Cupola for Excel">
+          <Component Id="HaybarnFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\haybarn.exe" />
+          </Component>
+          <Component Id="VgiExtensionFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\vgi.duckdb_extension" />
+          </Component>
+          <Component Id="ExcelDna32File" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\Vgi.ExcelDna-packed.xll" KeyPath="yes" />
+          </Component>
+          <Component Id="ExcelDna64File" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\Vgi.ExcelDna64-packed.xll" />
+          </Component>
+          <Component Id="WebViewLoaderFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\WebView2Loader.dll" />
+          </Component>
+          <Component Id="WebViewCoreFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\Microsoft.Web.WebView2.Core.dll" />
+          </Component>
+          <Component Id="WebViewFormsFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\Microsoft.Web.WebView2.WinForms.dll" />
+          </Component>
+          <Component Id="InstallScriptFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\install-xll.ps1" />
+          </Component>
+          <Component Id="UpdateScriptFile" Guid="*" Bitness="always64">
+            <File Source="..\artifacts\xll\Update Cupola for Excel.cmd" />
+          </Component>
+          <Directory Id="WebAssetsFolder" Name="web">
+            <Component Id="WebIndexAsset" Guid="*" Bitness="always64">
+              <File Source="..\artifacts\xll\web\index.html" />
+            </Component>
+            <Directory Id="WebAssetsFilesFolder" Name="assets">
+              <Component Id="WebScriptAsset" Guid="*" Bitness="always64">
+                <File Source="..\artifacts\xll\web\assets\workbench.js" />
+              </Component>
+              <Component Id="WebSourceMapAsset" Guid="*" Bitness="always64">
+                <File Source="..\artifacts\xll\web\assets\workbench.js.map" />
+              </Component>
+              <Component Id="WebStyleAsset" Guid="*" Bitness="always64">
+                <File Source="..\artifacts\xll\web\assets\workbench.css" />
+              </Component>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Complete" Title="Cupola for Excel" Level="1">
+      <ComponentRef Id="HaybarnFile" />
+      <ComponentRef Id="VgiExtensionFile" />
+      <ComponentRef Id="ExcelDna32File" />
+      <ComponentRef Id="ExcelDna64File" />
+      <ComponentRef Id="WebViewLoaderFile" />
+      <ComponentRef Id="WebViewCoreFile" />
+      <ComponentRef Id="WebViewFormsFile" />
+      <ComponentRef Id="InstallScriptFile" />
+      <ComponentRef Id="UpdateScriptFile" />
+      <ComponentRef Id="WebIndexAsset" />
+      <ComponentRef Id="WebScriptAsset" />
+      <ComponentRef Id="WebSourceMapAsset" />
+      <ComponentRef Id="WebStyleAsset" />
+    </Feature>
+  </Package>
+</Wix>
