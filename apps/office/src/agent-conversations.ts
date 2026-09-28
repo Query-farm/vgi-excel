@@ -1,13 +1,18 @@
+import { savedTranscript, type AgentTranscriptPart } from "@query-farm/vgi-excel-core";
+import type { AgentResultCard, AgentClarification } from "@query-farm/vgi-excel-core";
+import { migrateAIModel, normalizeEffort, clampMaxTokens, type AIEffort } from "@query-farm/vgi-excel-core";
 import type { QueryResult } from "@query-farm/vgi-excel-core";
 import type { OfficeAgentMessage } from "./anthropic";
 
-export type OfficeToolEvent = { id: string; name: string; state: "writing" | "running" | "done" | "error"; detail?: string };
-export type OfficeChatMessage = { role: "user" | "assistant"; text: string; tools?: OfficeToolEvent[]; streaming?: boolean; activity?: string; stopped?: boolean };
+export type OfficeToolEvent = { id: string; name: string; state: "writing" | "running" | "done" | "error" | "stopped"; detail?: string; sql?: string };
+export type OfficeChatMessage = { timeline?: AgentTranscriptPart[]; modelId?: string; modelName?: string; results?: AgentResultCard[]; clarification?: AgentClarification; role: "user" | "assistant"; text: string; tools?: OfficeToolEvent[]; streaming?: boolean; activity?: string; stopped?: boolean };
 
 export interface OfficeAgentConversation {
   id: string;
   name: string;
   model: string;
+  effort?: AIEffort;
+  maxTokens?: number;
   draft: string;
   displayMessages: OfficeChatMessage[];
   agentMessages: OfficeAgentMessage[];
@@ -46,7 +51,9 @@ export function loadOfficeAgentConversationState(scope: string, model: string, s
     const documents = parsed.documents.filter((value): value is OfficeAgentConversation => !!value && typeof value.id === "string" && !ids.has(value.id) && (ids.add(value.id), true)).slice(-MAX_CONVERSATIONS).map((value, index) => sanitize({
       ...value,
       name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : `Conversation ${index + 1}`,
-      model: typeof value.model === "string" && value.model.trim() ? value.model : model,
+      model: migrateAIModel(typeof value.model === "string" && value.model.trim() ? value.model : model),
+      effort: normalizeEffort(value.effort),
+      maxTokens: Number.isSafeInteger(value.maxTokens) && value.maxTokens! > 0 ? value.maxTokens : 16384,
       draft: typeof value.draft === "string" ? value.draft : "",
       createdAt: Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
       updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : Date.now(),
@@ -82,10 +89,16 @@ function sanitize(value: OfficeAgentConversation): OfficeAgentConversation {
   const displayMessages = (Array.isArray(value.displayMessages) ? value.displayMessages : []).slice(-MAX_DISPLAY_MESSAGES).map((message) => ({
     role: message.role === "user" ? "user" as const : "assistant" as const,
     text: String(message.text ?? "").slice(0, MAX_TEXT_CHARS),
-    tools: message.tools?.map((tool) => ({ id: String(tool.id), name: String(tool.name), state: tool.state === "writing" || tool.state === "running" ? "error" as const : tool.state, detail: tool.detail?.slice(0, MAX_TOOL_DETAIL_CHARS) })),
+    timeline: savedTranscript(message.timeline),
+    modelId: message.role === "assistant" && typeof message.modelId === "string" ? message.modelId.trim().slice(0, 256) : undefined,
+    modelName: message.role === "assistant" && typeof message.modelName === "string" ? message.modelName.trim().slice(0, 256) : undefined,
+    tools: message.tools?.map((tool) => ({ id: String(tool.id), name: String(tool.name), state: tool.state === "writing" || tool.state === "running" ? "error" as const : tool.state, detail: tool.detail?.slice(0, MAX_TOOL_DETAIL_CHARS), sql: tool.sql?.slice(0, MAX_TOOL_DETAIL_CHARS) })),
+    clarification: message.clarification ? { question: message.clarification.question.slice(0, 500), options: message.clarification.options.slice(0, 5), answer: message.clarification.answer?.slice(0, 20000) } : undefined,
     stopped: message.stopped || message.streaming ? true : undefined,
   }));
-  const agentMessages = JSON.parse(JSON.stringify((Array.isArray(value.agentMessages) ? value.agentMessages : []).slice(-MAX_AGENT_MESSAGES))) as OfficeAgentMessage[];
+  const hasThinking = (value.agentMessages ?? []).some(message => Array.isArray(message.content) && message.content.some(block => block.type === "thinking" || block.type === "redacted_thinking"));
+  const resumable = hasThinking ? value.displayMessages.filter(message => message.text.trim() || message.clarification?.answer).map(message => ({ role: message.role, content: message.text + (message.clarification?.answer ? `\nClarification: ${message.clarification.question}\nUser answer: ${message.clarification.answer}` : "") })) : (value.agentMessages ?? []);
+  const agentMessages = JSON.parse(JSON.stringify(resumable.slice(-MAX_AGENT_MESSAGES))) as OfficeAgentMessage[];
   for (const message of agentMessages) if (Array.isArray(message.content)) for (const block of message.content as Array<{ type?: string; content?: unknown }>) if (block.type === "tool_result" && typeof block.content === "string") block.content = block.content.slice(0, MAX_TOOL_RESULT_CHARS);
   while (agentMessages[0]?.role === "assistant") agentMessages.shift();
   return { ...value, draft: String(value.draft ?? "").slice(0, 20_000), displayMessages, agentMessages, staged: undefined, outcome: undefined };

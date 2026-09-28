@@ -2,17 +2,23 @@
 
 ## Office add-in
 
-Install dependencies and start the HTTPS development server:
+Use Node.js 22.12 or newer. Install the locked dependencies and start the HTTPS development server:
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
-The first run creates and trusts a Microsoft Office development certificate.
+The first development-server run creates and trusts a Microsoft Office development certificate.
+Unit tests and production builds do not generate or install certificates. The
+live Playwright preview uses a separate, untrusted certificate under the ignored
+`dev-certs/preview` directory; Playwright accepts it without changing OS trust.
 Sideload `apps/office/public/manifest.xml` into Excel. The manifest points to
 `https://localhost:3000` and configures one long-lived shared runtime for the
-task pane, ribbon command, and custom functions.
+task pane, ribbon command, and custom functions. The development server serves
+Haybarn workers and WASM directly from the installed package at `/haybarn/`;
+a production build is not required first. Run `npm run test:office-dev` to
+check these asset routes and custom-function metadata access.
 
 For a production package:
 
@@ -26,7 +32,11 @@ package that still contains localhost URLs. Host everything under
 `apps/office/dist` at that HTTPS origin. The host must serve `.wasm` as
 `application/wasm` and return `Cross-Origin-Opener-Policy: same-origin` plus
 `Cross-Origin-Embedder-Policy: require-corp`; VGI's worker OAuth bridge requires
-that cross-origin-isolated context. Remote VGI services must allow that origin
+that cross-origin-isolated context. Serve the public `/functions.json` metadata
+with `Access-Control-Allow-Origin: *` for GET/HEAD (and OPTIONS if requested),
+without credentials: Excel for the web fetches it from its own origin before
+starting the shared runtime. The Vite development and preview servers apply
+this rule only to that metadata path. Remote VGI services must allow that origin
 through CORS and OAuth providers must register
 `https://vgi-excel.example.com/oauth-dialog.html` as a SPA redirect URI.
 
@@ -36,7 +46,7 @@ Run the real browser/engine integration test with:
 npm run test:office-wasm
 ```
 
-It starts the production preview over trusted HTTPS, verifies cross-origin
+It starts the production preview over HTTPS, verifies cross-origin
 isolation, loads the self-hosted worker/WASM, attaches Open Meteo over VGI, and
 executes SQL. Override the endpoint with `CUPOLA_LIVE_VGI_ENDPOINT`.
 
@@ -73,18 +83,32 @@ exceptions raised by Excel or another add-in in the shared Excel process.
 
 ## Windows Excel-DNA package
 
-The XLL drives the released `haybarn.exe` CLI as a private child process. It
-sends SQL over stdin, keeping connection details out of process arguments, and
-accepts only HTTPS VGI locations. `haybarn.exe` and `vgi.duckdb_extension` are
-installed beside the packed XLL. Set `VGI_HAYBARN_PATH` or
-`VGI_EXTENSION_PATH` only for development overrides.
+The x64 XLL calls the native C API in the pinned `haybarn_odbc.dll` directly.
+It keeps one in-memory database/session per friendly connection name, loads the
+bundled VGI extension, and attaches through HTTPS once. It does not require an
+ODBC registration for worksheet or AI queries; Power Query still uses its
+separate ODBC contract. Queries on one session serialize; distinct connections
+have independent sessions. Settings/credential changes rebuild the session on
+its next query, sign-out/removal closes it, and add-in shutdown disposes all
+sessions. Failed queries evict their session without automatically replaying SQL.
+OAuth refresh-token attachments retain the VGI extension's refresh behavior;
+bearer-only expired sessions require signing in again.
+
+Result reading uses native materialized chunks, preserving empty-result schemas,
+UTF-8/NUL strings, exact large numeric values, nested JSON, and nanosecond timestamps.
+Session time zones are applied to timestamp-with-time-zone values. The five-minute
+query deadline interrupts native execution instead of killing a child process.
+Use `VGI_HAYBARN_NATIVE_PATH` and `VGI_EXTENSION_PATH` only for development overrides.
+`haybarn.exe` remains in the package for compatibility/integration tests, but is
+not invoked by the XLL query path. `VGI_HAYBARN_PATH` now applies only to CLI tests.
 
 To stage both packed XLLs, Haybarn, and the VGI extension—and optionally build
 the MSI—run:
 
 ```powershell
 .\windows\publish.ps1 -HaybarnPath C:\path\to\haybarn.exe `
-  -VgiExtensionPath C:\path\to\vgi.duckdb_extension -BuildMsi
+  -VgiExtensionPath C:\path\to\vgi.duckdb_extension `
+  -OdbcDriverPath C:\path\to\haybarn_odbc.dll -BuildMsi
 ```
 
 Release signing is optional for developer builds. Production builds should add
@@ -95,6 +119,18 @@ product version, build, file sizes, and SHA-256 hashes.
 `HaybarnPath` must be the native binary under `haybarn_cli\_bin`, not the small
 uv launcher under a virtual environment's `Scripts` directory; the launcher is
 not relocatable.
+
+Refresh the VGI extension when updating an older native package. In the matching
+Haybarn CLI, `FORCE INSTALL vgi FROM community` downloads the current signed
+extension; `SELECT install_path FROM duckdb_extensions() WHERE extension_name =
+'vgi'` locates the file to pass as `-VgiExtensionPath`. An old extension can fail
+against current VGI workers even when the Haybarn executable version matches.
+Run the native HTTPS suite before distributing the package.
+
+When copying a macOS-built desktop bundle to Windows for `-SkipWebBuild`, replace
+the destination `apps/desktop/dist` directory instead of merging files into an
+old build. The publisher rejects source maps in the web bundle or staged updater,
+including files left behind by earlier builds.
 
 Install or update the staged XLL from one permanent, per-user registration:
 
@@ -125,13 +161,39 @@ DSN-less contract:
 Driver={Cupola for Excel};CupolaConnection={friendly connection name};
 ```
 
-The ODBC driver resolves that name through
-`%LOCALAPPDATA%\QueryFarm\VgiExcel\desktop-connections.json`, including the VGI
-HTTPS location, catalog alias, and ATTACH options, and uses Cupola's Windows
-OAuth session rather than exposing tokens in M. During fork development, set
-`CUPOLA_ODBC_DRIVER_NAME` to the registered driver display name. The created
-query remains in Excel's Queries & Connections even when the driver is absent,
-which lets UI tests validate the handoff before driver integration is present.
+The bundled Haybarn ODBC fork resolves the name through
+`%LOCALAPPDATA%\QueryFarm\VgiExcel\desktop-connections.json`. It decrypts the
+same Windows-user DPAPI OAuth session as the XLL, loads the signed VGI extension,
+and connects using `ATTACH ... TYPE vgi LOCATION ...`. Credentials never enter
+M, ODBC parameters, process arguments, or driver diagnostics. Missing names,
+ambiguous names, HTTP endpoints, embedded credentials, reserved ATTACH options,
+and conflicting ODBC parameters fail closed. Generic Haybarn DSNs are unchanged.
+
+Before creating a workbook query, the XLL connects and reads the driver's
+connection-scoped `cupola_connection_info()` contract, compares all identity and
+configuration fields, and confirms `duckdb_databases()` contains the VGI
+catalog. A driver display name alone is insufficient. `CUPOLA_ODBC_DRIVER_NAME`
+can override the registered name, but the selected driver must pass this check.
+
+The driver source is `~/Development/haybarn/haybarn-odbc` (Cupola changes on
+base `82989a8db00573bbeb2da32e5b2fcc3baa7b6cd6`). Build from an x64 Visual Studio
+Developer Command Prompt with CMake/Ninja:
+
+```bat
+cmake -S path\to\haybarn-odbc -B path\to\haybarn-odbc\build\cupola -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build path\to\haybarn-odbc\build\cupola --target haybarn_odbc --parallel 8
+```
+
+Pass the resulting `build\cupola\bin\haybarn_odbc.dll` to
+`windows\publish.ps1 -OdbcDriverPath ...` or set `CUPOLA_ODBC_DRIVER_PATH`.
+The DLL is packaged next to `vgi.duckdb_extension`. The MSI registers it for
+64-bit Windows. The developer updater uses `register-odbc.ps1`, elevating only
+machine-wide registration when needed. Power Query currently requires x64 Excel.
+
+On first use, Excel's ODBC credential dialog requires **Default or Custom**
+with no extra credentials; Cupola supplies its own session. This is Excel's
+per-source permission, separate from VGI OAuth. See the
+[Microsoft ODBC connector documentation](https://learn.microsoft.com/en-us/power-query/connectors/odbc).
 
 ## XLL
 
@@ -141,7 +203,7 @@ Build both bitnesses through Excel-DNA:
 dotnet build windows\Vgi.ExcelDna\Vgi.ExcelDna.csproj -c Release
 ```
 
-The XLL adds a **VGI** ribbon and modeless WebView2 Workbench for HTTPS
+The XLL adds a **Cupola** ribbon and modeless WebView2 Workbench for HTTPS
 connections, SQL testing, catalog exploration, a streaming agent, confirmed
 result insertion, refresh, and diagnostics. The Microsoft Edge WebView2
 Evergreen Runtime is required; current Microsoft 365 installations normally
@@ -199,7 +261,8 @@ On a Windows machine with Excel, run:
 ```powershell
 .\tests\run-windows.ps1 `
   -HaybarnPath C:\path\to\haybarn.exe `
-  -VgiExtensionPath C:\path\to\vgi.duckdb_extension
+  -VgiExtensionPath C:\path\to\vgi.duckdb_extension `
+  -OdbcDriverPath C:\path\to\haybarn_odbc.dll
 ```
 
 The Windows runner builds the release artifacts, executes native HTTPS queries,
@@ -207,3 +270,161 @@ loads the packed XLL in a private Excel instance, validates formulas and spill
 results, checks HTTP rejection and diagnostics, and inspects the MSI contents.
 It backs up and restores the user's desktop connection files even when a test
 fails. See `tests/README.md` for individual commands and coverage.
+
+## Managed Windows release builds
+
+The managed MSI uses a machine-wide COM loader to activate the packed Excel-DNA
+XLL for each Excel user. It installs the Cupola ODBC driver in Program Files.
+The developer updater remains a separate per-user workflow; migrate its startup
+registration before testing the MSI as described in
+[enterprise deployment](enterprise-deployment.md).
+
+A release build requires an x64 Visual Studio Developer shell with C++ build
+tools, a Windows SDK, CMake, Ninja, Python 3, Git, and the .NET SDK. Build pinned
+native inputs from a clean checkout with:
+
+```powershell
+python windows/build-native-inputs.py --vgi-extension C:\approved\vgi.duckdb_extension
+.\windows\publish.ps1 `
+  -HaybarnPath .\artifacts\native-inputs\haybarn.exe `
+  -VgiExtensionPath .\artifacts\native-inputs\vgi.duckdb_extension `
+  -OdbcDriverPath .\artifacts\native-inputs\haybarn_odbc.dll `
+  -BuildMsi -Production -CertificateThumbprint YOUR_CERTIFICATE_THUMBPRINT
+```
+
+`windows/native-inputs.lock.json` pins upstream revisions and input checksums;
+`windows/odbc/cupola.patch` contains the reviewed Cupola integration and Windows
+build fixes. The builder emits provenance alongside the native files. Production
+publishing verifies that provenance against the source lock and patch, then
+requires valid timestamped signatures from the selected certificate. Its private
+key must be accessible to the build identity in the Windows certificate store;
+Azure Artifact Signing uses the alternative `-AzureSigningConfigPath` option.
+See [Azure signing setup](azure-signing.md) for preparation, OIDC, and the
+approval-dependent qualification steps.
+
+The engine-signed VGI extension must remain byte-for-byte unchanged: adding an
+Authenticode signature would invalidate its Haybarn signature. Do not sign that
+file with SignTool. MSI payloads and deployment scripts are signed separately.
+
+The manually triggered Windows release workflow requires a dedicated Excel
+runner with the above tools. See [remaining release gates](windows-production-readiness.md)
+for clean-machine, multiple-user, OAuth, and enterprise rollout qualification.
+After an installation, run `tests\excel\active-install-smoke.ps1` with Excel
+closed. It checks the repository's expected version/build and active directory;
+for a managed installation it verifies automatic COM loader activation without
+manually loading the XLL.
+
+## Windows multi-catalog profiles
+
+A saved desktop connection may instead contain `Members`, an ordered array of
+existing friendly connection names. The first member supplies the default catalog;
+all members are attached to the same native engine connection. Profiles have an
+empty `Location`, anonymous root `Authentication`, and empty `AttachOptions`;
+member definitions supply those settings. Empty or absent `Members` preserves the
+single-catalog format. Nested profiles, duplicate members, ambiguous names,
+missing members, and case-insensitive catalog collisions are rejected.
+
+Native session fingerprints include the complete ordered ATTACH setup for every
+member. Editing a member causes its profiles to reconnect on their next query.
+Signing out invalidates dependent native profile sessions. Already-open ODBC
+sessions retain their attachment state until disconnected; a new ODBC connection
+resolves the current profile and encrypted per-user OAuth stores again.
+
+The DSN-less Power Query string remains unchanged. `cupola_connection_info()`
+returns contract version 1 for a single catalog and version 2 with one row per
+profile member. Profile rows include `connection_name` (profile), `member_name`,
+`catalog_alias`, `location`, `authentication`, and `attach_options`. The native
+bridge validates every identity row and attached VGI catalog before creating M.
+Neither endpoints nor credentials are embedded in workbook connection definitions.
+
+## Static snapshots and Cupola table refresh (20260925.3)
+
+New snapshot insertion never writes `_CupolaSnapshot_` defined names (Windows) or
+`cupola.snapshot.*` settings (Office). Both insert the query values into ordinary
+Excel tables. Passing source metadata fields to the native insert bridge does not
+restore the old managed-table behavior. Windows defaults to **Load refreshable
+table**, using the existing Power Query/ODBC path and Excel Refresh All.
+
+Cupola table metadata remains readable and its manual refresh methods remain available
+for compatibility. Windows **Create refreshable copy** resolves the source from
+that metadata at the native boundary and creates a separate Power Query table.
+It never deletes or modifies the original table or metadata, including when driver
+validation, query creation, or initial loading fails. An initial background refresh
+being started is not proof that loading succeeded. Users verify the new table and
+explicitly choose **Keep as static table** when ready to remove old metadata.
+Existing formulas keep referencing their original table until the user changes them.
+Office keeps manual Cupola table refresh but does not offer the Windows ODBC migration.
+
+## Connection test deadlines
+
+The Office connection form tests a draft using a dedicated Haybarn WASM worker.
+A 20-second deadline covers engine startup and attachment as well as the probe
+query. Success, failure, and timeout dispose that worker; a stalled endpoint does
+not leave the shared query runtime blocked. OAuth sign-in following an explicit
+authentication challenge is outside the network-probe deadline, with a fresh
+bounded probe after sign-in. The endpoint is never corrected or suggested by the
+connection test. Errors remain inline and the form can be retried.
+
+Both connection dialogs start with an HTTPS address and **Find catalogs**, using
+`SELECT catalog FROM vgi_catalogs(location)` through Haybarn before ATTACH. A single
+result is selected automatically; multiple results require a choice. Manual catalog
+entry remains available when discovery is unsupported, restricted, or fails. A new
+friendly name follows the catalog until edited; saved identities never change
+automatically. Duplicate names are rejected. Hostnames are never corrected or
+suggested. Advanced ATTACH options remain separate.
+
+The XLL probes use disposable native sessions with a 20-second caller deadline,
+five-second HTTP request timeouts, and no HTTP retries. Cancellation interrupts the
+native query; its owning worker disposes handles only after the query exits. At most
+one native probe can remain active, preventing repeated timeouts from accumulating
+sessions. Human OAuth sign-in is outside the probe deadline. Discovery does not
+attempt interactive sign-in; restricted discovery can use manual catalog entry.
+Connection discovery, test, and save errors remain inline beside their actions;
+they are not repeated in the global notice banner. Editing or retrying clears the
+previous error.
+Testing drafts (including profiles) never saves connection definitions or changes
+the default connection. Explicit Save is required. OAuth sessions may still be
+stored securely after a user completes sign-in.
+
+
+## Simple connection setup (20260926.2)
+
+Both hosts use **New connection → Server address → Find catalogs**, followed by
+**Catalog** and **Connection name**. Advanced settings stay collapsed. Windows
+shows a separate **Combine saved connections** action when two individual
+connections are available; it never asks users to choose a connection type.
+New combinations require two members. Existing one-member combinations remain
+editable. Their default connection is available under **Advanced options**.
+Combining connections does not merge or copy data; each saved connection retains
+its own catalog and sign-in. Ordinary connection setup remains the same in Office.
+
+
+Authenticated catalog discovery uses the VGI extension's named authentication
+options, reusing the Office session token or the desktop's per-user encrypted
+OAuth store. Each network probe is bounded to 20 seconds. On an authentication
+challenge Cupola opens its existing sign-in flow outside that deadline, then
+retries discovery. The dialog shows persistent sign-in progress and inline
+failures; cancellation returns focus to Find catalogs. Manual entry remains
+available. Discovery uses `oauth_cache := 'none'` so the engine does not create
+another credential store, and never saves the draft connection.
+
+The Office WASM engine currently uses one execution thread (`maximumThreads: 1`).
+The pinned threaded build can stall the next statement after cancelling a pending
+query with multiple execution threads. Pending queries still yield for Cancel;
+we await its acknowledgement before permitting another run. Keep the live
+cancel/reuse/temporary-table test green before raising this setting. This limits
+CPU-heavy SQL parallelism in the browser; the Windows native engine is unchanged.
+
+Ask AI cancellation propagates to model streaming/retry waits and SQL/catalog
+tools. The desktop bridge uses read-only `query.agent` requests with unique IDs
+and waits for cancellation acknowledgement. Office gives Ask AI its own backend
+connection and serializes its pending statements so cancellation cannot target an
+editor or formula request. The interface shows Stopping until pending work settles;
+interrupted tools become Stopped, drafts remain intact, and the conversation can
+continue. Cancellation does not dismiss an external OAuth sign-in window. Agent
+conversations remain local and are never sent to Sentry.
+
+The desktop host displays a native Cupola opening panel while WebView2 starts.
+The workbench and results viewer send `ui.rendered` after their first React paint;
+this hides the panel independently of connection discovery. A 45-second startup
+timeout or failed navigation exposes recovery instead of leaving a blank window.

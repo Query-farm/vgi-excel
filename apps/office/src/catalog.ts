@@ -1,21 +1,23 @@
+import { executeCatalogTool } from "@query-farm/vgi-excel-core";
 import type { AgentToolContext, CatalogFunction, QueryBackend, QueryResult } from "@query-farm/vgi-excel-core";
 
 export function agentContext(backend: QueryBackend, createQuery?: AgentToolContext["createQuery"]): AgentToolContext {
   return {
     backend,
+    catalogTool: (name, input, signal) => executeCatalogTool(name, input, sql => backend.query(sql, { maxRows: 20_000, signal })),
     createQuery,
-    async listTables() {
+    async listTables(signal) {
       return rows(
         await backend.query(`SELECT table_catalog, table_schema, table_name, table_type
           FROM information_schema.tables
           WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
-          ORDER BY 1, 2, 3`),
+          ORDER BY 1, 2, 3`, { signal }),
       );
     },
-    async listFunctions() {
-      return discoverFunctions(backend);
+    async listFunctions(signal) {
+      return discoverFunctions(backend, signal);
     },
-    async describeTable(input) {
+    async describeTable(input, signal) {
       const conditions = [
         `table_schema = ${literal(input.schema)}`,
         `table_name = ${literal(input.table)}`,
@@ -23,21 +25,21 @@ export function agentContext(backend: QueryBackend, createQuery?: AgentToolConte
       ].filter(Boolean);
       return rows(
         await backend.query(`SELECT table_catalog, table_schema, table_name, column_name, data_type, is_nullable
-          FROM information_schema.columns WHERE ${conditions.join(" AND ")} ORDER BY ordinal_position`),
+          FROM information_schema.columns WHERE ${conditions.join(" AND ")} ORDER BY ordinal_position`, { signal }),
       );
     },
   };
 }
 
-export async function discoverFunctions(backend: QueryBackend): Promise<CatalogFunction[]> {
+export async function discoverFunctions(backend: QueryBackend, signal?: AbortSignal): Promise<CatalogFunction[]> {
   const [result, argumentResult] = await Promise.all([
     backend.query(`SELECT database_name, schema_name, function_name, function_type, parameters, parameter_types, return_type, description
       FROM duckdb_functions()
       WHERE database_name NOT IN ('system', 'temp')
-      ORDER BY 1, 2, 3`),
+      ORDER BY 1, 2, 3`, { signal }),
     backend.query(`SELECT catalog_name, schema_name, function_name, arg_position, arg_name, arg_type, arg_description, is_named, is_positional, is_varargs, arg_default, arg_choices, arg_range, arg_pattern
       FROM vgi_function_arguments()
-      ORDER BY 1, 2, 3, field_index`).catch((): QueryResult => ({ columns: [], rows: [], rowCount: 0 })),
+      ORDER BY 1, 2, 3, field_index`, { signal }).catch((): QueryResult => { signal?.throwIfAborted(); return { columns: [], rows: [], rowCount: 0 }; }),
   ]);
   const rich = new Map<string, CatalogFunction["parameters"]>();
   for (const row of rows(argumentResult)) {

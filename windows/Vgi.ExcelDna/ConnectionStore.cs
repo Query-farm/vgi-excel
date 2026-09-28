@@ -10,6 +10,8 @@ internal sealed class VgiConnection
 {
     public string Name { get; set; } = "";
     public string Catalog { get; set; } = "";
+    public string[] Members { get; set; } = Array.Empty<string>();
+    [JsonIgnore] public bool IsProfile => Members is { Length: > 0 };
     public string Location { get; set; } = "";
     public string Authentication { get; set; } = "anonymous";
     public Dictionary<string, object?> AttachOptions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -39,33 +41,41 @@ internal static class ConnectionStore
         var connections = List();
         var requested = string.IsNullOrWhiteSpace(name) ? DefaultName() : name;
         return connections.FirstOrDefault(item => string.Equals(item.Name, requested, StringComparison.OrdinalIgnoreCase))
-            ?? connections.FirstOrDefault()
+            ?? (string.IsNullOrWhiteSpace(name) ? connections.FirstOrDefault() : throw new InvalidOperationException("The requested Cupola connection no longer exists."))
             ?? throw new InvalidOperationException("No VGI connection is configured. Open Cupola > Connections.");
     }
 
-    public static void Save(VgiConnection connection, bool makeDefault = true)
+    public static void Save(VgiConnection connection, bool makeDefault = true, string? originalName = null)
     {
         Validate(connection);
-        lock (Gate)
+        lock (Gate) ConnectionFile.Update(Root, () =>
         {
-            Directory.CreateDirectory(Root);
+            if (originalName is not null && !string.Equals(originalName, connection.Name, StringComparison.OrdinalIgnoreCase) && List().Any(item => string.Equals(item.Name, connection.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("A connection with this name already exists. Choose a different name.");
             var values = List().Where(item => !string.Equals(item.Name, connection.Name, StringComparison.OrdinalIgnoreCase)).ToList();
             values.Add(connection);
-            File.WriteAllText(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
-            if (makeDefault) File.WriteAllText(DefaultPath, connection.Name);
-        }
+            foreach (var item in values) ResolveAttachments(item, values);
+            ConnectionFile.Write(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
+            if (makeDefault) ConnectionFile.Write(DefaultPath, connection.Name);
+            return true;
+        });
     }
 
     public static void Remove(string name)
     {
-        lock (Gate)
+        HaybarnSessions.Cache.Invalidate(name, () =>
         {
-            Directory.CreateDirectory(Root);
-            var values = List().Where(item => !string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
-            File.WriteAllText(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
-            if (string.Equals(DefaultName(), name, StringComparison.OrdinalIgnoreCase))
-                File.WriteAllText(DefaultPath, values.FirstOrDefault()?.Name ?? "");
-        }
+            lock (Gate) ConnectionFile.Update(Root, () =>
+            {
+                var values = List().Where(item => !string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (values.Any(item => (item.Members ?? Array.Empty<string>()).Contains(name, StringComparer.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Remove this connection from its profiles before deleting it.");
+                ConnectionFile.Write(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
+                if (string.Equals(DefaultName(), name, StringComparison.OrdinalIgnoreCase))
+                    ConnectionFile.Write(DefaultPath, values.FirstOrDefault()?.Name ?? "");
+                return true;
+            });
+        });
     }
 
     public static string? DefaultName()
@@ -75,15 +85,58 @@ internal static class ConnectionStore
 
     public static void SetDefault(string name)
     {
-        if (!List().Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("The selected VGI connection does not exist.");
-        Directory.CreateDirectory(Root);
-        File.WriteAllText(DefaultPath, name);
+        lock (Gate) ConnectionFile.Update(Root, () =>
+        {
+            if (!List().Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("The selected VGI connection does not exist.");
+            ConnectionFile.Write(DefaultPath, name);
+            return true;
+        });
+    }
+
+    internal static int ImportDefaults(string path)
+    {
+        if (!File.Exists(path)) return 0;
+        if (new FileInfo(path).Length > 1024 * 1024) throw new InvalidOperationException("Cupola connection defaults exceed the size limit.");
+        var definitions = JsonConvert.DeserializeObject<List<VgiConnection>>(File.ReadAllText(path), new JsonSerializerSettings { MissingMemberHandling = MissingMemberHandling.Error })
+            ?? throw new InvalidOperationException("Cupola connection defaults must be an array.");
+        foreach (var definition in definitions) Validate(definition);
+        if (definitions.Select(item => item.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != definitions.Count)
+            throw new InvalidOperationException("Cupola connection defaults contain duplicate names.");
+        lock (Gate) return ConnectionFile.Update(Root, () =>
+        {
+            var values = List().ToList();
+            var additions = definitions.Where(item => !values.Any(existing => string.Equals(existing.Name, item.Name, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (additions.Count == 0) return 0;
+            values.AddRange(additions);
+            foreach (var item in values) ResolveAttachments(item, values);
+            ConnectionFile.Write(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
+            if (string.IsNullOrWhiteSpace(DefaultName())) ConnectionFile.Write(DefaultPath, values[0].Name);
+            return additions.Count;
+        });
+    }
+
+    internal static void ImportMachineDefaults()
+    {
+        // Tests must never consume a user's or a machine's production configuration.
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("VGI_EXCEL_CONFIG_HOME"))) return;
+        using var machine = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+        using var product = machine.OpenSubKey(@"SOFTWARE\QueryFarm\Cupola");
+        var directory = product?.GetValue("InstallDirectory") as string;
+        if (!string.IsNullOrWhiteSpace(directory)) ImportDefaults(Path.Combine(directory, "connection-defaults.json"));
     }
 
     public static void Validate(VgiConnection connection)
     {
         if (string.IsNullOrWhiteSpace(connection.Name)) throw new ArgumentException("A connection name is required.");
+        if (connection.IsProfile)
+        {
+            if (connection.Members.Length > 16 || connection.Members.Any(string.IsNullOrWhiteSpace) || connection.Members.Distinct(StringComparer.OrdinalIgnoreCase).Count() != connection.Members.Length)
+                throw new ArgumentException("A profile requires up to 16 distinct saved connections.");
+            if (!string.IsNullOrEmpty(connection.Location) || connection.Authentication != "anonymous" || connection.AttachOptions?.Count > 0)
+                throw new ArgumentException("Profiles use their members' endpoints, sign-in, and options.");
+            return;
+        }
         if (string.IsNullOrWhiteSpace(connection.Catalog)) throw new ArgumentException("A VGI catalog name is required.");
         if (!Uri.TryCreate(connection.Location, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
             throw new ArgumentException("Cupola for Excel supports HTTPS VGI endpoints only.");
@@ -100,6 +153,32 @@ internal static class ConnectionStore
             if (option.Value is not null and not string and not bool and not byte and not short and not int and not long and not float and not double and not decimal)
                 throw new ArgumentException($"ATTACH option {option.Key} must be a string, number, boolean, or null.");
         }
+    }
+
+    internal static IReadOnlyList<VgiConnection> ResolveAttachments(VgiConnection connection, IReadOnlyList<VgiConnection>? saved = null)
+    {
+        Validate(connection);
+        if (!connection.IsProfile) return new[] { connection };
+        saved ??= List();
+        var attachments = new List<VgiConnection>();
+        foreach (var name in connection.Members)
+        {
+            var matches = saved.Where(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (matches.Length != 1) throw new InvalidOperationException("A profile member is missing or ambiguous. Update the profile in Connections.");
+            var member = matches[0];
+            if (member.IsProfile) throw new ArgumentException("Profiles can contain saved connections, not other profiles.");
+            Validate(member);
+            if (attachments.Any(item => string.Equals(item.Catalog, member.Catalog, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("Profile members must have distinct catalog aliases.");
+            attachments.Add(member);
+        }
+        return attachments;
+    }
+
+    internal static void InvalidateMemberSessions(string name)
+    {
+        foreach (var item in List().Where(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase) || (item.Members ?? Array.Empty<string>()).Contains(name, StringComparer.OrdinalIgnoreCase)))
+            HaybarnSessions.Cache.Invalidate(item.Name);
     }
 
     public static string DiagnosticsPath => ConnectionsPath;

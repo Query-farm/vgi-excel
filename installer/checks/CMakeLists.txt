@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(CupolaInstallerChecks LANGUAGES CXX)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_library(CupolaInstallerChecks SHARED checks.cpp)
+target_link_libraries(CupolaInstallerChecks PRIVATE msi)
+target_compile_definitions(CupolaInstallerChecks PRIVATE UNICODE _UNICODE)

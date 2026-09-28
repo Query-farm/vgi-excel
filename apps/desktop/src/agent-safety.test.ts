@@ -18,7 +18,8 @@ describe("Cupola-derived agent safeguards", () => {
       { role: "user", content: "third" },
     ];
     sanitizeConversation(messages);
-    expect(JSON.stringify(messages)).not.toContain("dangling");
+    expect(messages[1].content).toEqual([{ type: "tool_use", id: "dangling", name: "list_tables", input: {} }]);
+    expect(messages[2].content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "tool_result", tool_use_id: "dangling", is_error: true })]));
     expect(messages.map((item) => item.role)).toEqual(["user", "assistant", "user"]);
     expect(JSON.stringify(messages[2].content)).toContain("second");
     expect(JSON.stringify(messages[2].content)).toContain("third");

@@ -45,6 +45,9 @@ internal static class OAuthTraceLog
     internal static string Redact(string value)
     {
         var redacted = Regex.Replace(value ?? "", @"(?i)(Authorization:\s*Bearer\s+)[^\s,;]+", "$1***");
+        // SQL ATTACH and named table-function arguments can contain escaped quotes.
+        redacted = Regex.Replace(redacted,
+            @"(?i)\b(bearer_token|oauth_refresh_token)\s+(?::=\s*)?'(?:''|[^'])*'", "$1 ***");
         redacted = Regex.Replace(
             redacted,
             @"(?i)([""']?(?:access_token|refresh_token|oauth_refresh_token|id_token|client_secret|authorization_code|code_verifier)[""']?\s*[:=]\s*[""']?)[^""'\s,&;]+",

@@ -66,6 +66,36 @@ function callbacks() {
 const CONNECTION = { name: "weather", catalog: "open_meteo", location: "https://weather.test/vgi", authentication: "anonymous" as const };
 
 describe("desktop agent", () => {
+  it("keeps the rendered cache prefix stable across tool rounds and follow-up questions", async () => {
+    const posted = installHost({ result: { columns: [], rows: [], rowCount: 0 } });
+    const bodies: any[] = [];
+    const responses = [toolTurn("first", "run_sql", '{"sql":"SELECT 1"}'), textTurn("One"), textTurn("Two")];
+    globalThis.fetch = vi.fn(async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return responses.shift()!; }) as typeof fetch;
+    const { AgentSession } = await import("./agent");
+    const session = new AgentSession();
+    await session.run("key", "claude-sonnet-5", "First", CONNECTION, callbacks(), new AbortController().signal, { workspaceId: "wrkspc_test", effort: "low" });
+    await session.run("key", "claude-sonnet-5", "Second", CONNECTION, callbacks(), new AbortController().signal, { workspaceId: "wrkspc_test", effort: "low" });
+    const prefix = (body: any) => JSON.stringify(body.tools) + JSON.stringify(body.system) + body.messages.map((message: unknown) => JSON.stringify(message)).join("");
+    expect(prefix(bodies[1]).startsWith(prefix(bodies[0]))).toBe(true);
+    expect(prefix(bodies[2]).startsWith(prefix(bodies[1]))).toBe(true);
+    expect(posted.filter(item => item.method === "query.agent" && String(item.params.sql).includes("information_schema.tables"))).toHaveLength(1);
+  });
+
+  it("discovers all catalogs in a profile and includes both in the AI prompt", async () => {
+    const posted = installHost({ result: {
+      columns: ["catalog", "schema", "name", "kind", "description"].map(name => ({ name, type: "VARCHAR" })),
+      rows: [["open_meteo", "main", "forecast", "table", ""], ["earthquakes", "main", "recent", "view", ""]], rowCount: 2,
+    } });
+    let body: any;
+    globalThis.fetch = vi.fn(async (_url, init) => { body = JSON.parse(String(init?.body)); return textTurn("Ready"); }) as typeof fetch;
+    const { AgentSession } = await import("./agent");
+    await new AgentSession().run("fixture-key", "model", "What is connected?", { ...CONNECTION, name: "Research", catalogs: ["open_meteo", "earthquakes"], members: ["Weather", "Earthquakes"] }, callbacks(), new AbortController().signal);
+    const inventory = posted.find(request => request.method === "query.agent");
+    expect(inventory.params.sql).toContain("IN ('open_meteo','earthquakes')");
+    expect(JSON.stringify(body.system)).toContain("earthquakes.main.recent");
+    expect(JSON.stringify(body.system)).toContain("open_meteo.main.forecast");
+  });
+
   it("restores persisted model history before continuing a conversation", async () => {
     installHost({ result: { columns: [], rows: [], rowCount: 0 } });
     const requests: RequestInit[] = [];
@@ -95,10 +125,10 @@ describe("desktop agent", () => {
     await new AgentSession().run("test-key", "model", "what is connected?", CONNECTION, callbacks(), new AbortController().signal);
 
     const body = JSON.parse(String(requests[0].body));
-    expect(body.system).toContain("Connection name: weather");
-    expect(body.system).toContain("Attached catalog: open_meteo");
-    expect(body.system).toContain("`open_meteo.main.forecast_current`");
-    expect(body.system).not.toContain(CONNECTION.location);
+    expect(JSON.stringify(body.system)).toContain("Connection name: weather");
+    expect(JSON.stringify(body.system)).toContain("Attached catalog: open_meteo");
+    expect(JSON.stringify(body.system)).toContain("`open_meteo.main.forecast_current`");
+    expect(JSON.stringify(body.system)).not.toContain(CONNECTION.location);
   });
 
   it("streams text, executes a native read-only query, and stages the result", async () => {
@@ -112,7 +142,7 @@ describe("desktop agent", () => {
 
     expect(events.onText.mock.calls.flat().join("")).toBe("The answer is 42.");
     expect(events.onResult).toHaveBeenCalledWith(result);
-    expect(posted.find((item) => item.method === "query.run" && item.params.sql === "SELECT 42 AS value")).toMatchObject({ params: { agent: true, connection: "weather", sql: "SELECT 42 AS value" } });
+    expect(posted.find((item) => item.method === "query.agent" && item.params.sql === "SELECT 42 AS value")).toMatchObject({ params: { agent: true, connection: "weather", sql: "SELECT 42 AS value" } });
     expect(events.onTool).toHaveBeenCalledWith("run_sql", "writing", undefined, "tool-1");
     expect(events.onTool).toHaveBeenCalledWith("run_sql", "done", "SELECT 42 AS value", "tool-1");
     expect(events.onTool.mock.calls.flat().join(" ")).not.toContain("result_id");
@@ -139,9 +169,9 @@ describe("desktop agent", () => {
     expect(posted.some((item) => item.method === "excel.workbookOverview")).toBe(true);
   });
 
-  it("stages a new worksheet write without mutating Excel", async () => {
+  it("stages the executed query and saved connection for a refreshable worksheet without mutating Excel", async () => {
     const queryResult = { columns: [{ name: "temperature", type: "DOUBLE" }], rows: [[21.5]], rowCount: 1, truncated: false };
-    const posted = installHost((request) => ({ result: request.method === "query.run" && request.params.sql === "SELECT 21.5 AS temperature" ? queryResult : { columns: [], rows: [], rowCount: 0 } }));
+    const posted = installHost((request) => ({ result: request.method === "query.agent" && request.params.sql === "SELECT 21.5 AS temperature" ? queryResult : { columns: [], rows: [], rowCount: 0 } }));
     const responses = [
       toolTurn("query", "run_sql", '{"sql":"SELECT 21.5 AS temperature"}'),
       toolTurn("stage", "stage_result_to_new_sheet", '{"result_id":"RESULT_ID","sheet_name":"Revenue / Expense: August [Final]","table_name":"VGI_Forecast"}'),
@@ -152,14 +182,14 @@ describe("desktop agent", () => {
       if (responses.length === 2) {
         const body = JSON.parse(String(init?.body));
         const resultId = JSON.parse(body.messages[2].content[0].content).result_id;
-        responses[0] = toolTurn("stage", "stage_result_to_new_sheet", JSON.stringify({ result_id: resultId, sheet_name: "Revenue / Expense: August [Final]", table_name: "VGI_Forecast" }));
+        responses[0] = toolTurn("stage", "stage_result_to_new_sheet", JSON.stringify({ result_id: resultId, sheet_name: "Revenue / Expense: August [Final]", table_name: "VGI_Forecast", sql: "DELETE FROM data", connection: "unrelated" }));
       }
       return responses.shift()!;
     }) as unknown as typeof fetch;
     const { AgentSession } = await import("./agent");
     await new AgentSession().run("key", "model", "Put it on a new sheet", CONNECTION, events, new AbortController().signal);
-    expect(events.onWorkbookAction).toHaveBeenCalledWith(expect.objectContaining({ mode: "new_sheet", sheetName: "Revenue - Expense - August - Fi", tableName: "VGI_Forecast", result: queryResult }));
-    expect(posted.some((item) => item.method === "excel.writeResult")).toBe(false);
+    expect(events.onWorkbookAction).toHaveBeenCalledWith(expect.objectContaining({ mode: "new_sheet", sheetName: "Revenue - Expense - August - Fi", tableName: "VGI_Forecast", result: queryResult, query: { sql: "SELECT 21.5 AS temperature", connection: "weather" } }));
+    expect(posted.some((item) => item.method === "excel.writeResult" || item.method === "excel.createPowerQuery")).toBe(false);
   });
 
   it("creates a saved query tab without executing or changing Excel", async () => {
@@ -174,7 +204,7 @@ describe("desktop agent", () => {
     await new AgentSession().run("key", "model", "Save a forecast query", CONNECTION, events, new AbortController().signal);
 
     expect(events.onQueryDocument).toHaveBeenCalledWith({ name: "Daily forecast", sql: "SELECT * FROM open_meteo.main.forecast_daily()" });
-    expect(posted.filter((item) => item.method === "query.run" && !String(item.params.sql).includes("information_schema.tables"))).toHaveLength(0);
+    expect(posted.filter((item) => item.method === "query.agent" && !String(item.params.sql).includes("information_schema.tables"))).toHaveLength(0);
     expect(posted.some((item) => item.method.startsWith("excel."))).toBe(false);
   });
 
@@ -186,14 +216,14 @@ describe("desktop agent", () => {
     const { AgentSession } = await import("./agent");
     await new AgentSession().run("test-key", "model", "try", CONNECTION, callbacks(), new AbortController().signal);
 
-    expect(posted.filter((item) => item.method === "query.run" && !String(item.params.sql).includes("information_schema.tables"))).toHaveLength(0);
+    expect(posted.filter((item) => item.method === "query.agent" && !String(item.params.sql).includes("information_schema.tables"))).toHaveLength(0);
     const secondBody = JSON.parse(String(requests[1].body));
     expect(JSON.stringify(secondBody.messages)).toContain("not valid JSON");
   });
 
   it("filters function inventory and returns DuckDB named-parameter guidance", async () => {
     const flat = {
-      columns: ["database_name", "schema_name", "function_name", "function_type", "parameters", "parameter_types", "description"].map((name) => ({ name, type: "VARCHAR" })),
+      columns: ["catalog", "schema", "name", "kind", "parameters", "parameter_types", "description"].map((name) => ({ name, type: "VARCHAR" })),
       rows: [["open_meteo", "main", "forecast_current", "table", '["latitude","longitude","temperature_unit"]', '["DOUBLE","DOUBLE","VARCHAR"]', "Current weather"]], rowCount: 1, truncated: false,
     };
     const rich = {
@@ -210,7 +240,7 @@ describe("desktop agent", () => {
     const { AgentSession } = await import("./agent");
     await new AgentSession().run("test-key", "model", "forecast", CONNECTION, callbacks(), new AbortController().signal);
 
-    const queries = posted.filter((item) => item.method === "query.run" && !String(item.params.sql).includes("information_schema.tables"));
+    const queries = posted.filter((item) => item.method === "query.agent" && !String(item.params.sql).includes("information_schema.tables"));
     expect(queries).toHaveLength(2);
     expect(queries[0].params.sql).toContain("database_name='open_meteo'");
     expect(queries[1].params.sql).toContain("catalog_name='open_meteo'");
@@ -218,7 +248,7 @@ describe("desktop agent", () => {
     const secondBody = JSON.parse(String(requests[1].body));
     expect(JSON.stringify(secondBody.messages)).toContain("name := value");
     const inventory = JSON.parse(secondBody.messages[2].content[0].content);
-    expect(inventory.functions[0].arguments[1]).toMatchObject({ name: "temperature_unit", kind: "named", choices: ["celsius", "fahrenheit"] });
+    expect(inventory.objects[0].arguments[1]).toMatchObject({ name: "temperature_unit", kind: "named", choices: ["celsius", "fahrenheit"] });
   });
 
   it("stops executing SQL after three failures in one turn", async () => {
@@ -235,7 +265,7 @@ describe("desktop agent", () => {
     const events = callbacks();
     await new AgentSession().run("test-key", "model", "keep trying", CONNECTION, events, new AbortController().signal);
 
-    expect(posted.filter((item) => item.method === "query.run" && String(item.params.sql).startsWith("SELECT bad"))).toHaveLength(3);
+    expect(posted.filter((item) => item.method === "query.agent" && String(item.params.sql).startsWith("SELECT bad"))).toHaveLength(3);
     expect(events.onTool).toHaveBeenCalledWith("run_sql", "error", expect.stringContaining("failure budget"), "q4");
   });
 
@@ -274,4 +304,55 @@ describe("desktop agent", () => {
     await expect(new AgentSession().run("bad", "model", "hello", CONNECTION, callbacks(), new AbortController().signal)).rejects.toThrow(/401/);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
+});
+
+it.each(["inventory", "sql", "catalog"])("cancels %s through its own query ID and resumes the conversation", async phase => {
+  const listeners: Array<(event: MessageEvent) => void> = [];
+  let pending: any;
+  let started!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const empty = { columns: [], rows: [], rowCount: 0 };
+  const reply = (request: any, result: unknown) => queueMicrotask(() => listeners[0]({ data: { id: request.id, result } } as MessageEvent));
+  let cancelledId = "";
+  let block = true;
+  (globalThis as any).window = { chrome: { webview: {
+    addEventListener: (_: string, listener: (event: MessageEvent) => void) => listeners.push(listener),
+    postMessage(request: any) {
+      if (request.method === "query.cancel") { cancelledId = request.params.queryId; reply(request, true); reply(pending, null); return; }
+      const sql = request.params?.sql ?? "";
+      if (block && request.method === "query.agent" && (phase === "inventory" || (phase === "sql" ? sql === "SELECT 42 AS value" : sql.includes("CAST(to_json(parameters)")))) {
+        pending = request; started(); return;
+      }
+      reply(request, request.method === "query.agent" ? empty : true);
+    },
+  } } };
+  globalThis.fetch = vi.fn(async () => phase === "catalog" ? toolTurn("cancel-tool", "list_functions", "{}") : toolTurn()) as typeof fetch;
+  const { AgentSession } = await import("./agent");
+  const session = new AgentSession(), controller = new AbortController(), events = callbacks();
+  const run = session.run("key", "model", "Start", CONNECTION, events, controller.signal);
+  const rejected = expect(run).rejects.toMatchObject({ name: "AbortError" });
+  await waiting; controller.abort(); await rejected;
+  expect(cancelledId).toBe(pending.params.queryId);
+  expect(events.onResult).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(phase === "inventory" ? 0 : 1);
+  block = false;
+  globalThis.fetch = vi.fn(async () => textTurn("Recovered")) as typeof fetch;
+  await session.run("key", "model", "Continue", CONNECTION, events, new AbortController().signal);
+  expect(events.onText).toHaveBeenCalledWith("Recovered");
+  if (phase !== "inventory") expect(JSON.stringify(session.snapshot())).toContain('"is_error":true');
+});
+
+it("waits for an explicit clarification answer before executing the dependent query", async () => {
+  const posted = installHost({ result: { columns: [], rows: [], rowCount: 0 } });
+  let answer!: (value: string) => void;
+  const onClarification = vi.fn(() => new Promise<string>(resolve => { answer = resolve; }));
+  const onQueryResult = vi.fn();
+  globalThis.fetch = vi.fn().mockResolvedValueOnce(toolTurn("q", "ask_clarification", JSON.stringify({ question: "Which period?", options: ["This year", "Last year"] }))).mockResolvedValueOnce(toolTurn("sql", "run_sql", JSON.stringify({ sql: "SELECT 42", scope: { dateRange: "Last year" } }))).mockResolvedValueOnce(textTurn());
+  const { AgentSession } = await import("./agent");
+  const run = new AgentSession().run("key", "model", "Revenue", CONNECTION, { ...callbacks(), onClarification, onQueryResult }, new AbortController().signal);
+  await vi.waitFor(() => expect(onClarification).toHaveBeenCalled());
+  expect(posted.filter(value => value.params.sql === "SELECT 42")).toHaveLength(0);
+  expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  answer("Last year"); await run;
+  expect(onQueryResult).toHaveBeenCalledWith(expect.objectContaining({ sql: "SELECT 42", scope: { dateRange: "Last year" } }));
 });

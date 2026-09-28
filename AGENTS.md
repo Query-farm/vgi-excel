@@ -30,8 +30,12 @@ Shared TypeScript logic lives in `packages/core`. Windows packaging lives in
   Microsoft 365 OAuth material remains in the Office session.
 - AI SQL is read-only and must be validated again at the native bridge boundary.
   Workbook writes always require explicit user confirmation.
-- Snapshots and Power Query are distinct. Snapshots are Cupola-managed Excel
-  tables; Power Query participates in Excel Refresh All through the ODBC driver.
+- Snapshots and Power Query are distinct. New snapshots are static Excel tables
+  with no refresh metadata. Power Query is the primary Windows path for refreshable
+  tables and participates in Excel Refresh All through the ODBC driver.
+- Preserve existing Cupola-managed tables as legacy compatibility. Migration creates
+  a separate Power Query copy after confirmation; never automatically remove the
+  original table or its refresh metadata. Retiring management requires confirmation.
 
 ## Power Query contract
 
@@ -80,7 +84,12 @@ from Excel or another add-in.
 
 ## UI conventions
 
-- Workspace order is Query Editor, Ask AI, Catalog, Connections.
+- Design for business users. Have UI changes reviewed by a UI/UX designer before
+  applying them; prioritize simple task-based flows and plain language over
+  implementation terminology.
+
+- Workspace order is Query Editor, Ask AI, Catalog View. Connections opens from the
+  upper-right Settings gear.
 - Prefer inline, persistent state over success toasts. Toasts/notices are for
   errors, retries, or genuinely transient work.
 - Use the Cupola mark and existing design tokens/icons; do not introduce generic

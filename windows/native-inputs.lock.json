@@ -1,0 +1,20 @@
+{
+  "haybarn": {
+    "repository": "https://github.com/Query-farm-haybarn/haybarn.git",
+    "commit": "105edd31b57fe7e6d32ee648efad562e45a9f908",
+    "version": "1.5.5-rc1",
+    "cliWheelUrl": "https://files.pythonhosted.org/packages/3e/6b/ce73cfb33dc4bb934471c1903a6a1e1d2b2c3fec49d35e5547ddb8093bf0/haybarn_cli-1.5.5rc1-py3-none-win_amd64.whl",
+    "cliWheelSha256": "3e36fbf57a14ee3a90fcd9ffdf8aa08409d5feaa997ee65ff2e43ea199ce5e7a",
+    "cliSha256": "3516459f7882cbf7a0e4ff9fce300d4d817a5d689a59702b31cd310a943ea483"
+  },
+  "odbc": {
+    "repository": "https://github.com/Query-farm-haybarn/haybarn-odbc.git",
+    "commit": "82989a8db00573bbeb2da32e5b2fcc3baa7b6cd6",
+    "patch": "windows/odbc/cupola.patch"
+  },
+  "vgi": {
+    "sha256": "3a6a550331856e2e45724c384f974a6c9dcd11ca4ac6215391ad947603207d68",
+    "platform": "windows_amd64",
+    "engineVersion": "v1.5.5"
+  }
+}

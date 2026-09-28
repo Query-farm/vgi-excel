@@ -3,6 +3,7 @@ namespace QueryFarm.Vgi.ExcelDna;
 internal static class ProductInfo
 {
     public const string Name = "Cupola for Excel";
-    public const string Version = "0.4.0";
-    public const string Build = "20260821.2";
+    public const string WindowTitle = "Cupola for Excel by Query Farm";
+    public const string Version = "0.5.0";
+    public const string Build = "20260927.17";
 }

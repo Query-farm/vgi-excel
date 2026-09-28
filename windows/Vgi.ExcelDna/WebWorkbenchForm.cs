@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,7 +21,12 @@ internal sealed class WebWorkbenchForm : Form
 {
     private const string AppHost = "vgi-excel.local";
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
+    private readonly Panel _opening = new() { Name = "openingPanel", Dock = DockStyle.Fill, BackColor = Color.FromArgb(247, 243, 234) };
+    private readonly Label _openingText = new() { AutoSize = true, Text = "Opening Cupola…", ForeColor = Color.FromArgb(33, 26, 18), Font = new Font("Segoe UI", 12) };
+    private readonly System.Windows.Forms.Timer _startupTimer = new() { Interval = 45_000 };
+    private bool _startupFailed;
     private readonly int _initialTab;
+    private readonly JObject? _resultsSnapshot;
     private bool _ready;
     private int _uiThreadId;
     internal static string LastStatus { get; private set; } = "Not started";
@@ -29,13 +35,46 @@ internal sealed class WebWorkbenchForm : Form
     private WebWorkbenchForm(int tab)
     {
         _initialTab = tab;
-        Text = ProductInfo.Name;
+        Text = ProductInfo.WindowTitle;
+        CupolaWindowIcon.Apply(this);
         Width = 1060;
         Height = 760;
         MinimumSize = new Size(360, 480);
         StartPosition = FormStartPosition.CenterParent;
+        BackColor = _opening.BackColor;
+        _web.DefaultBackgroundColor = BackColor;
         Controls.Add(_web);
-        Shown += async (_, __) => await InitializeWebView();
+        var mark = new PictureBox { Size = new Size(64, 64), SizeMode = PictureBoxSizeMode.Zoom, AccessibleName = "Cupola" };
+        using (var stream = typeof(WebWorkbenchForm).Assembly.GetManifestResourceStream("QueryFarm.Vgi.ExcelDna.OpeningMark"))
+            if (stream is not null) { using var image = System.Drawing.Image.FromStream(stream); mark.Image = new Bitmap(image); }
+        _opening.Controls.Add(mark);
+        _opening.Controls.Add(_openingText);
+        _opening.Resize += (_, __) => {
+            mark.Location = new Point(Math.Max(0, (_opening.Width - mark.Width) / 2), Math.Max(16, (_opening.Height - 110) / 2));
+            _openingText.Location = new Point(Math.Max(0, (_opening.Width - _openingText.Width) / 2), mark.Bottom + 16);
+        };
+        Controls.Add(_opening);
+        _opening.BringToFront();
+        _startupTimer.Tick += (_, __) => StartupFailed(new TimeoutException("Cupola took too long to open. Close this window and try again, or open native Cupola below."));
+        FormClosed += (_, __) => { _startupTimer.Dispose(); mark.Image?.Dispose(); };
+        // Keep a native diagonal resize target outside the WebView child window.
+        Controls.Add(new StatusStrip
+        {
+            Name = "windowResizeGrip",
+            AccessibleName = "Window resize grip",
+            Dock = DockStyle.Bottom,
+            SizingGrip = true,
+            RightToLeft = RightToLeft.No
+        });
+        Shown += async (_, __) => { _startupTimer.Start(); await InitializeWebView(); };
+    }
+
+    private WebWorkbenchForm(JObject snapshot) : this(0)
+    {
+        _resultsSnapshot = snapshot;
+        _openingText.Text = "Opening results…";
+        Text = (snapshot.Value<string>("title") ?? "Query") + " — Results — " + ProductInfo.WindowTitle;
+        Width = 1200; Height = 850;
     }
 
     public static Form Create(int tab)
@@ -66,17 +105,23 @@ internal sealed class WebWorkbenchForm : Form
         {
             _uiThreadId = Thread.CurrentThread.ManagedThreadId;
             LastStatus = "Initializing";
-            var userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QueryFarm", "VgiExcel", "WebView2");
+            var configOverride = Environment.GetEnvironmentVariable("VGI_EXCEL_CONFIG_HOME");
+            var configRoot = string.IsNullOrWhiteSpace(configOverride) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QueryFarm", "VgiExcel") : Path.GetFullPath(configOverride);
+            var userData = Path.Combine(configRoot, "WebView2");
             Directory.CreateDirectory(userData);
             var environment = await CoreWebView2Environment.CreateAsync(null, userData);
+            if (IsDisposed || _startupFailed) return;
             await _web.EnsureCoreWebView2Async(environment);
+            if (IsDisposed || _startupFailed) return;
             _web.CoreWebView2.SetVirtualHostNameToFolderMapping(AppHost, AssetDirectory(), CoreWebView2HostResourceAccessKind.DenyCors);
             _web.CoreWebView2.Settings.AreDevToolsEnabled = Environment.GetEnvironmentVariable("VGI_EXCEL_WEBVIEW_DEVTOOLS") == "1";
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _web.CoreWebView2.Settings.IsZoomControlEnabled = true;
             _web.CoreWebView2.WebMessageReceived += OnWebMessage;
-            _web.CoreWebView2.NavigationCompleted += (_, args) => LastStatus = args.IsSuccess ? "Ready" : $"Navigation failed: {args.WebErrorStatus}";
+            _web.CoreWebView2.NavigationCompleted += (_, args) => {
+                if (!args.IsSuccess) StartupFailed(new InvalidOperationException("Cupola could not load its interface. Close this window and try again."));
+            };
             _web.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 if (!args.Uri.StartsWith($"https://{AppHost}/", StringComparison.OrdinalIgnoreCase)) args.Cancel = true;
@@ -88,14 +133,24 @@ internal sealed class WebWorkbenchForm : Form
                     Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
             };
             _ready = true;
-            _web.Source = new Uri($"https://{AppHost}/index.html?tab={TabName(_initialTab)}");
+            _web.Source = new Uri(_resultsSnapshot is null ? $"https://{AppHost}/index.html?tab={TabName(_initialTab)}" : $"https://{AppHost}/results.html");
         }
         catch (Exception error)
         {
-            LastStatus = "Failed: " + error.GetBaseException().Message;
-            ErrorLog.Write(error);
-            ShowFallback(error);
+            StartupFailed(error);
         }
+    }
+
+    private void StartupFailed(Exception error)
+    {
+        if (IsDisposed || _startupFailed) return;
+        _startupFailed = true;
+        _startupTimer.Stop();
+        LastStatus = "Failed: " + error.GetBaseException().Message;
+        ErrorLog.Write(error);
+        _web.Visible = false;
+        if (_resultsSnapshot is null) ShowFallback(error);
+        else _openingText.Text = "Could not open results. Close this window and try again.";
     }
 
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
@@ -108,7 +163,31 @@ internal sealed class WebWorkbenchForm : Form
             var id = request.Value<int>("id");
             var method = request.Value<string>("method") ?? "";
             var parameters = request["params"] as JObject ?? new JObject();
-            var result = await WorkbenchBridge.Invoke(method, parameters);
+            object? result;
+            if (method == "ui.rendered")
+            {
+                if (!_startupFailed) { _startupTimer.Stop(); _opening.Visible = false; LastStatus = "Ready"; }
+                result = true;
+            }
+            else if (_resultsSnapshot is not null)
+            {
+                // Result viewers have no connection, query, credential, or workbook bridge.
+                switch (method)
+                {
+                    case "results.ready": result = _resultsSnapshot; break;
+                    case "results.maximize": WindowState = FormWindowState.Maximized; result = true; break;
+                    case "results.close": Close(); return;
+                    default: throw new InvalidOperationException("This action is unavailable in a results window.");
+                }
+            }
+            else if (method == "results.open")
+            {
+                var snapshot = ValidateResultsSnapshot(parameters);
+                var viewer = new WebWorkbenchForm(snapshot);
+                viewer.Show(this);
+                result = true;
+            }
+            else result = await WorkbenchBridge.Invoke(method, parameters, status => Reply(new JObject { ["id"] = id, ["progress"] = status }));
             LastBridgeMethod = method;
             Reply(new JObject { ["id"] = id, ["result"] = result is null ? JValue.CreateNull() : JToken.FromObject(result, WorkbenchBridge.Serializer) });
         }
@@ -117,6 +196,15 @@ internal sealed class WebWorkbenchForm : Form
             ErrorLog.Write(error);
             Reply(new JObject { ["id"] = request?.Value<int?>("id") ?? 0, ["error"] = error.GetBaseException().Message });
         }
+    }
+
+    internal static JObject ValidateResultsSnapshot(JObject parameters)
+    {
+        var result = parameters["result"]?.ToObject<QueryResult>(WorkbenchBridge.Serializer)
+            ?? throw new ArgumentException("Query results are required.");
+        if (result.Columns is null || result.Rows is null || result.Rows.Length > 20_000 || result.RowCount < result.Rows.Length || result.Columns.Any(column => column is null) || result.Rows.Any(row => row is null || row.Length != result.Columns.Length))
+            throw new ArgumentException("Query results are invalid.");
+        return new JObject { ["title"] = parameters.Value<string>("title") ?? "Query", ["result"] = JToken.FromObject(result, WorkbenchBridge.Serializer) };
     }
 
     private void Reply(JObject value)
@@ -156,6 +244,8 @@ internal sealed class WebWorkbenchForm : Form
             return;
         }
         Controls.Clear();
+        _web.Dispose();
+        _opening.Dispose();
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, Padding = new Padding(24), WrapContents = false };
         panel.Controls.Add(new Label { AutoSize = true, Font = new Font("Segoe UI", 14, FontStyle.Bold), Text = "The modern Cupola for Excel experience could not start." });
         panel.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(760, 0), Text = error.GetBaseException().Message });
@@ -177,13 +267,16 @@ internal sealed class WebWorkbenchForm : Form
 
 internal static class WorkbenchBridge
 {
+    private static readonly object queryGate = new();
+    private static readonly Dictionary<string, CancellationTokenSource> editorQueries = new();
+
     internal static readonly JsonSerializer Serializer = JsonSerializer.Create(new JsonSerializerSettings
     {
         ContractResolver = new CamelCasePropertyNamesContractResolver(),
         NullValueHandling = NullValueHandling.Include
     });
 
-    public static async Task<object?> Invoke(string method, JObject parameters)
+    public static async Task<object?> Invoke(string method, JObject parameters, Action<string>? progress = null)
     {
         switch (method)
         {
@@ -207,7 +300,7 @@ internal static class WorkbenchBridge
             case "connections.save":
             {
                 var connection = RequiredConnection(parameters);
-                ConnectionStore.Save(connection, parameters.Value<bool?>("makeDefault") ?? false);
+                ConnectionStore.Save(connection, parameters.Value<bool?>("makeDefault") ?? false, parameters.Value<string>("originalName") ?? "");
                 return Connections();
             }
             case "connections.use":
@@ -217,29 +310,62 @@ internal static class WorkbenchBridge
             {
                 var name = parameters.Value<string>("name") ?? "";
                 var existing = ConnectionStore.List().FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-                if (existing is not null) OAuthClient.SignOut(existing);
                 ConnectionStore.Remove(name);
+                if (existing is not null && !existing.IsProfile) OAuthClient.SignOut(existing);
                 return Connections();
             }
+            case "connections.catalogs":
+                return await ConnectionProbe.Catalogs(parameters.Value<string>("location") ?? "", progress);
             case "connections.test":
             {
                 var connection = RequiredConnection(parameters);
-                ConnectionStore.Save(connection);
-                return await Task.Run(() => new HaybarnClient().QueryResult("SELECT current_catalog(), current_schema();", connection.Name, 1));
+                await ConnectionProbe.Test(connection);
+                return new { authentication = connection.Authentication };
             }
             case "connections.signIn":
             {
                 var connection = RequiredConnection(parameters);
-                connection.Authentication = "oauth";
                 ConnectionStore.Save(connection);
-                await OAuthClient.SignInAsync(connection);
+                foreach (var member in ConnectionStore.ResolveAttachments(connection))
+                {
+                    member.Authentication = "oauth";
+                    ConnectionStore.Save(member, false);
+                    await OAuthClient.SignInAsync(member);
+                }
                 return Connections();
             }
             case "connections.signOut":
             {
                 var connection = RequiredConnection(parameters);
-                OAuthClient.SignOut(connection);
+                foreach (var member in ConnectionStore.ResolveAttachments(connection)) OAuthClient.SignOut(member);
                 return Connections();
+            }
+            case "query.cancel":
+            {
+                var id = parameters.Value<string>("queryId") ?? "";
+                lock (queryGate)
+                {
+                    if (!editorQueries.TryGetValue(id, out var source)) return false;
+                    source.Cancel();
+                    return true;
+                }
+            }
+            case "query.agent":
+            case "query.editor":
+            {
+                var id = parameters.Value<string>("queryId") ?? "";
+                if (!Guid.TryParse(id, out _)) throw new ArgumentException("A query identifier is required.");
+                var sql = parameters.Value<string>("sql") ?? "";
+                if (method == "query.agent" || parameters.Value<bool?>("agent") == true) AgentSqlPolicy.AssertReadOnly(sql);
+                using var source = new CancellationTokenSource();
+                lock (queryGate)
+                {
+                    if (editorQueries.ContainsKey(id)) throw new ArgumentException("Query is already running.");
+                    editorQueries.Add(id, source);
+                }
+                try { return await Task.Run(() => new HaybarnClient().QueryResult(sql, parameters.Value<string>("connection"), Math.Max(1, Math.Min(20_000, parameters.Value<int?>("maxRows") ?? 10_000)), source.Token)); }
+                catch (OperationCanceledException) when (source.IsCancellationRequested) { return null; }
+                finally { lock (queryGate) editorQueries.Remove(id); }
             }
             case "query.run":
             {
@@ -252,7 +378,7 @@ internal static class WorkbenchBridge
             case "excel.insert":
             {
                 var result = parameters["result"]?.ToObject<QueryResult>(Serializer) ?? throw new ArgumentException("A query result is required.");
-                return WorkbookBridge.InsertAtActiveCell(result, parameters.Value<string>("tableName") ?? "VGI_Result", parameters.Value<string>("sql"), parameters.Value<string>("connection"));
+                return WorkbookBridge.InsertAtActiveCell(result, parameters.Value<string>("tableName") ?? "VGI_Result");
             }
             case "excel.insertQuery":
             {
@@ -262,17 +388,20 @@ internal static class WorkbenchBridge
                 var result = await Task.Run(() => new HaybarnClient().QueryResult(sql, connection, WorkbookBridge.MaximumWorksheetDataRows + 1));
                 if (result.Truncated || result.RowCount > WorkbookBridge.MaximumWorksheetDataRows)
                     throw new InvalidOperationException($"The query returned {result.RowCount:N0} rows. Excel tables can contain at most {WorkbookBridge.MaximumWorksheetDataRows:N0} data rows on a worksheet.");
-                return WorkbookBridge.InsertAtActiveCell(result, parameters.Value<string>("tableName") ?? "VGI_Result", sql, connection);
+                return WorkbookBridge.InsertAtActiveCell(result, parameters.Value<string>("tableName") ?? "VGI_Result");
             }
             case "excel.createPowerQuery":
                 return PowerQueryBridge.Create(
                     parameters.Value<string>("sql") ?? "",
                     parameters.Value<string>("connection") ?? "",
                     parameters.Value<string>("name"),
-                    parameters.Value<bool?>("loadToWorksheet") ?? true);
+                    parameters.Value<bool?>("loadToWorksheet") ?? true,
+                    parameters.Value<string>("sheetName"),
+                    parameters.Value<string>("tableName"));
             case "excel.activateTable": return WorkbookBridge.ActivateTable(parameters.Value<string>("tableName") ?? "");
             case "excel.snapshots": return WorkbookBridge.ManagedSnapshots();
             case "excel.refreshSnapshot": return WorkbookBridge.RefreshSnapshot(parameters.Value<string>("tableName") ?? "");
+            case "excel.migrateSnapshot": return WorkbookBridge.CreateRefreshableCopy(parameters.Value<string>("tableName") ?? "");
             case "excel.forgetSnapshot": return WorkbookBridge.ForgetSnapshot(parameters.Value<string>("tableName") ?? "");
             case "excel.workbookOverview": return WorkbookBridge.Overview();
             case "excel.readRange": return WorkbookBridge.ReadRange(parameters.Value<string>("sheet") ?? "", parameters.Value<string>("address") ?? "");
@@ -289,11 +418,20 @@ internal static class WorkbenchBridge
     private static object[] Connections()
     {
         var preferred = ConnectionStore.DefaultName();
-        return ConnectionStore.List().Select(connection => (object)new
+        var saved = ConnectionStore.List();
+        return saved.Select(connection =>
         {
-            connection.Name, connection.Catalog, connection.Location, connection.Authentication, connection.AttachOptions,
-            IsDefault = string.Equals(connection.Name, preferred, StringComparison.OrdinalIgnoreCase),
-            IsSignedIn = connection.Authentication == "oauth" && OAuthClient.IsSignedIn(connection)
+            IReadOnlyList<VgiConnection> members;
+            try { members = ConnectionStore.ResolveAttachments(connection, saved); }
+            catch { members = Array.Empty<VgiConnection>(); }
+            return (object)new
+            {
+                connection.Name, Catalog = members.FirstOrDefault()?.Catalog ?? connection.Catalog,
+                Catalogs = members.Select(member => member.Catalog).ToArray(), connection.Members,
+                connection.Location, connection.Authentication, connection.AttachOptions,
+                IsDefault = string.Equals(connection.Name, preferred, StringComparison.OrdinalIgnoreCase),
+                IsSignedIn = members.Any(member => member.Authentication == "oauth") && members.All(member => member.Authentication != "oauth" || OAuthClient.IsSignedIn(member))
+            };
         }).ToArray();
     }
 

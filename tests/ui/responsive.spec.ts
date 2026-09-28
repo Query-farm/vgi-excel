@@ -4,22 +4,28 @@ const widths = [300, 320, 340, 400, 720, 1060];
 
 async function expectContained(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const tabs = page.locator(".workspace-tabs");
+  for (const name of ["Query Editor", "Ask AI", "Catalog View"]) {
+    const tab = tabs.getByRole("tab", { name, exact: true });
+    await expect(tab.locator("span")).toBeVisible();
+    expect(await tab.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
   const footer = page.locator(".product-footer");
-  await expect(footer).toBeVisible();
+  await expect(footer).toHaveCount(0);
   const metrics = await page.evaluate(() => ({
     viewportHeight: innerHeight,
     documentHeight: document.documentElement.scrollHeight,
-    footerBottom: document.querySelector(".product-footer")?.getBoundingClientRect().bottom ?? -1,
+    shellBottom: document.querySelector(".app-shell")?.getBoundingClientRect().bottom ?? -1,
   }));
   expect(metrics.documentHeight).toBeLessThanOrEqual(metrics.viewportHeight + 1);
-  expect(Math.abs(metrics.footerBottom - metrics.viewportHeight)).toBeLessThanOrEqual(1);
+  expect(Math.abs(metrics.shellBottom - metrics.viewportHeight)).toBeLessThanOrEqual(1);
 }
 
 for (const width of widths) {
   test(`desktop contains onboarding at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 760 });
     await page.addInitScript(() => {
-      const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [] : request.method === "app.diagnostics" ? "test diagnostics" : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
+      const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [] : request.method === "app.diagnostics" ? "test diagnostics" : request.method === "agent.key.load" ? null : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
       Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
     });
     await page.goto("http://127.0.0.1:4173/index.html");
@@ -35,17 +41,17 @@ for (const width of widths) {
       localStorage.setItem("vgi.excel.default-connection.v1", "weather");
     });
     await page.goto("http://127.0.0.1:4174/taskpane.html");
-    await page.getByRole("tab", { name: "Connections" }).click();
-    await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expectContained(page);
   });
 }
 
-test("desktop workspace and footer follow a live window resize", async ({ page }) => {
+test("desktop workspace follows a live window resize", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 760 });
   await page.addInitScript(() => {
     const connection = { name: "weather", catalog: "open_meteo", location: "https://example.com", authentication: "anonymous", isDefault: true, isSignedIn: true };
-    const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : request.method === "query.run" ? { columns: [], rows: [], rowCount: 0, truncated: false } : request.method === "app.diagnostics" ? "test diagnostics" : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
+    const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : ["query.run", "query.editor", "query.agent"].includes(request.method) ? { columns: [], rows: [], rowCount: 0, truncated: false } : request.method === "app.diagnostics" ? "test diagnostics" : request.method === "agent.key.load" ? null : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
   });
   await page.goto("http://127.0.0.1:4173/index.html");
@@ -64,16 +70,17 @@ test("desktop query editor uses the Cupola icon toolbar without a header selecto
   await page.setViewportSize({ width: 900, height: 680 });
   await page.addInitScript(() => {
     const connection = { name: "weather", catalog: "open_meteo", location: "https://example.com", authentication: "anonymous", isDefault: true, isSignedIn: true };
-    const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : request.method === "query.run" ? { columns: [], rows: [], rowCount: 0, truncated: false } : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
+    const webview = { postMessage(request: { id: number; method: string }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : ["query.run", "query.editor", "query.agent"].includes(request.method) ? { columns: [], rows: [], rowCount: 0, truncated: false } : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
   });
   await page.goto("http://127.0.0.1:4173/index.html");
-  expect(await page.locator(".workspace-tabs").getByRole("tab").allTextContents()).toEqual(["Query Editor", "Ask AI", "Catalog", "Connections"]);
+  expect(await page.locator(".workspace-tabs").getByRole("tab").allTextContents()).toEqual(["Query Editor", "Ask AI", "Catalog View"]);
   await expect(page.locator("header select")).toHaveCount(0);
-  for (const name of ["Run", "Format", "Copy SQL"]) await expect(page.getByRole("button", { name, exact: true }).locator("svg")).toHaveCount(1);
-  await expect(page.locator(".query-history-menu summary svg")).toHaveCount(1);
+  for (const name of ["Run", "Format", "Copy"]) await expect(page.getByRole("button", { name, exact: true }).locator("svg")).toHaveCount(1);
+  await expect(page.locator(".query-history-menu")).toHaveCount(0);
   await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.locator(".results-toolbar")).toContainText("0 rows");
+  await expect(page.getByRole("status")).toHaveText("Query completed. No rows returned.");
+  await expect(page.locator(".results-toolbar")).toHaveCount(0);
   await expect(page.locator(".notice")).toHaveCount(0);
   await expectContained(page);
 });
@@ -87,7 +94,7 @@ test("desktop query preview pages independently from complete snapshot insertion
       localStorage.setItem("cupola.test.lastMethod", request.method);
       const result = request.method === "connections.list" ? [connection]
         : request.method === "agent.key.load" ? null
-        : request.method === "query.run" ? queryResult
+        : ["query.run", "query.editor", "query.agent"].includes(request.method) ? queryResult
         : request.method === "excel.createPowerQuery" ? { query: "Query 1", loaded: true, sheet: "Query 1", table: "Query_1", message: "Power Query created and refresh started." }
         : request.method === "excel.insertQuery" ? { sheet: "Sheet1", table: "VGI_Result", address: "$A$1:$A$100001" }
         : true;
@@ -98,22 +105,22 @@ test("desktop query preview pages independently from complete snapshot insertion
   await page.goto("http://127.0.0.1:4173/index.html");
   await expect(page.locator("header .brand small")).toHaveCount(0);
 
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   const splitter = page.getByRole("separator", { name: "Resize query editor and results" });
   await splitter.focus();
   await splitter.press("ArrowDown");
-  await expect(splitter).toHaveAttribute("aria-valuenow", "45");
-
-  await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.locator(".results-toolbar")).toContainText("100,000 rows · showing 1–200 · 1,000 loaded for preview");
+  await expect(splitter).toHaveAttribute("aria-valuenow", "35");
+  await expect(page.locator(".results-toolbar")).toContainText("100,000 rows · 1,000 loaded");
   await page.getByLabel("Rows shown per result page").selectOption("500");
   await page.getByRole("button", { name: "Next preview page" }).click();
-  await expect(page.locator(".results-toolbar")).toContainText("showing 501–1,000");
+  await expect(page.locator(".results-paging")).toContainText("501–1,000 of 1,000 loaded");
 
-  await page.getByRole("button", { name: "Load to Power Query" }).click();
+  await page.getByRole("button", { name: "Load into Excel" }).click();
   await expect(page.locator(".query-results-pane")).toContainText("Power Query created and refresh started.");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("cupola.test.lastMethod"))).toBe("excel.createPowerQuery");
 
-  await page.getByRole("button", { name: "Insert complete snapshot" }).click();
+  await page.getByText("More", { exact: true }).click();
+  await page.getByRole("button", { name: "Insert static table" }).click();
   await expect(page.getByText("Snapshot inserted", { exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("cupola.test.lastMethod"))).toBe("excel.insertQuery");
 });
@@ -126,7 +133,7 @@ test("desktop query tabs persist SQL and keep session results with their documen
       const marker = request.params?.sql?.includes("second") ? "second result" : "first result";
       const result = request.method === "connections.list" ? [connection]
         : request.method === "agent.key.load" ? null
-        : request.method === "query.run" ? { columns: [{ name: "marker", type: "VARCHAR" }], rows: [[marker]], rowCount: 1, truncated: false }
+        : ["query.run", "query.editor", "query.agent"].includes(request.method) ? { columns: [{ name: "marker", type: "VARCHAR" }], rows: [[marker]], rowCount: 1, truncated: false }
         : true;
       setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0);
     }, addEventListener() {} };
@@ -166,8 +173,8 @@ test("Ask AI can create a saved Query Editor tab without executing it", async ({
     const connection = { name: "weather-prod", catalog: "open_meteo", location: "https://example.com", authentication: "anonymous", isDefault: true, isSignedIn: true };
     const empty = { columns: [], rows: [], rowCount: 0, truncated: false };
     const webview = { postMessage(request: { id: number; method: string; params?: { sql?: string } }) {
-      if (request.method === "query.run" && !request.params?.sql?.includes("information_schema.tables")) localStorage.setItem("cupola.test.agentExecutedSql", request.params?.sql ?? "unknown");
-      const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? "test-key" : request.method === "query.run" ? empty : true;
+      if (["query.run", "query.editor", "query.agent"].includes(request.method) && !request.params?.sql?.includes("information_schema.tables")) localStorage.setItem("cupola.test.agentExecutedSql", request.params?.sql ?? "unknown");
+      const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? "test-key" : ["query.run", "query.editor", "query.agent"].includes(request.method) ? empty : true;
       setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0);
     }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
@@ -200,9 +207,11 @@ test("Ask AI can create a saved Query Editor tab without executing it", async ({
   await expect.poll(() => page.evaluate(() => localStorage.getItem("cupola.test.agentExecutedSql"))).toBeNull();
 });
 
-test("Ask AI keeps workbook confirmation visible and usable after later replies", async ({ page }) => {
+for (const loadOutcome of ["loaded", "query-only", "error"] as const) {
+test(`Ask AI stages a refreshable query and handles ${loadOutcome} after later replies`, async ({ page }) => {
   await page.setViewportSize({ width: 440, height: 760 });
-  await page.addInitScript(() => {
+  await page.addInitScript(({ loadOutcome }) => {
+    (window as any).writes = [];
     const connection = { name: "weather-prod", catalog: "open_meteo", location: "https://example.com", authentication: "anonymous", isDefault: true, isSignedIn: true };
     const empty = { columns: [], rows: [], rowCount: 0, truncated: false };
     const forecast = { columns: [{ name: "time", type: "TIMESTAMP" }, { name: "temperature", type: "DOUBLE" }], rows: [["2026-08-19T18:00:00", 81]], rowCount: 168, truncated: false };
@@ -210,12 +219,18 @@ test("Ask AI keeps workbook confirmation visible and usable after later replies"
       let result: unknown = true;
       if (request.method === "connections.list") result = [connection];
       else if (request.method === "agent.key.load") result = "test-key";
-      else if (request.method === "query.run") result = request.params?.sql === "SELECT * FROM hourly_forecast" ? forecast : empty;
-      else if (request.method === "excel.writeResult") { localStorage.setItem("cupola.test.confirmedWrite", "true"); result = { sheet: "Glen Allen VA - Hourly Forecast", table: "VGI_Hourly_Forecast", address: "$A$1:$B$169" }; }
+      else if (["query.run", "query.editor", "query.agent"].includes(request.method)) result = request.params?.sql === "SELECT * FROM hourly_forecast" ? forecast : empty;
+      else if (request.method === "excel.writeResult") { throw new Error("Static insertion must not be used for refreshable output"); }
+      else if (request.method === "excel.createPowerQuery") {
+        (window as any).writes.push(request.params);
+        localStorage.setItem("cupola.test.confirmedWrite", "true");
+        if (loadOutcome === "error") { setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, error: "The driver is unavailable." }), 0); return; }
+        result = loadOutcome === "loaded" ? { query: "Forecast query", loaded: true, sheet: "Glen Allen VA - Hourly Forecast", table: "VGI_Hourly_Forecast_2", message: "Refresh started." } : { query: "Forecast query", loaded: false, message: "The query was created. Finish loading in Queries & Connections." };
+      }
       setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0);
     }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
-  });
+  }, { loadOutcome });
   let request = 0;
   await page.route("https://api.anthropic.com/v1/messages", async (route) => {
     const body = route.request().postDataJSON() as { messages?: Array<{ content?: unknown }> };
@@ -252,8 +267,8 @@ test("Ask AI keeps workbook confirmation visible and usable after later replies"
   const tray = page.getByLabel("Workbook actions");
   await expect(tray).toBeVisible();
   await expect(page.locator(".agent > .chat + .workbook-action-tray")).toHaveCount(1);
-  await expect(tray.getByText("Create Excel table snapshot")).toBeVisible();
-  await expect(tray.getByText("168 rows")).toBeVisible();
+  await expect(tray.getByText("Create refreshable Excel table")).toBeVisible();
+  await expect(tray.getByText("Preview: 1 row")).toBeVisible();
   await expect(tray.getByText("New worksheet")).toBeVisible();
   await expect(tray.getByText("“Glen Allen VA - Hourly Forecast”")).toBeVisible();
   const queryTool = page.locator(".tool").filter({ hasText: "SQL query · complete" }).first();
@@ -266,14 +281,28 @@ test("Ask AI keeps workbook confirmation visible and usable after later replies"
   await prompt.fill("Anything else I should know?");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Here are some additional notes about the forecast.")).toBeVisible();
-  const confirm = tray.getByRole("button", { name: "Confirm" });
+  const confirm = tray.getByRole("button", { name: "Load into Excel", exact: true });
   await expect(confirm).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 600 });
+  await expect(page.getByRole("button", { name: "Load into Excel", exact: true })).toHaveCount(1);
+  await expect(confirm).toBeInViewport();
+  if (loadOutcome === "loaded") await page.screenshot({ path: "/tmp/cupola-ai-refreshable.png" });
   const bounds = await confirm.boundingBox();
-  expect(bounds && bounds.x + bounds.width).toBeLessThanOrEqual(440);
+  expect(bounds && bounds.x + bounds.width).toBeLessThanOrEqual(360);
+  expect(await page.evaluate(() => (window as any).writes)).toEqual([]);
   await confirm.click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("cupola.test.confirmedWrite"))).toBe("true");
-  await expect(tray.getByRole("button", { name: "Go to table" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).writes)).toEqual([{ sql: "SELECT * FROM hourly_forecast", connection: "weather-prod", name: "VGI_Hourly_Forecast", loadToWorksheet: true, sheetName: "Glen Allen VA - Hourly Forecast", tableName: "VGI_Hourly_Forecast" }]);
+  if (loadOutcome === "loaded") await expect(tray.getByRole("button", { name: "Go to table" })).toBeVisible();
+  else if (loadOutcome === "query-only") {
+    await expect(tray.getByText("Query created — finish loading in Excel")).toBeVisible();
+    await expect(tray.getByRole("button")).toHaveCount(0);
+  } else {
+    await expect(tray).toContainText("The driver is unavailable.");
+    await expect(tray.getByRole("button", { name: "Try again" })).toBeVisible();
+  }
 });
+}
 
 test("Ask AI conversation tabs persist across closing and reopening the Workbench", async ({ page }) => {
   await page.setViewportSize({ width: 760, height: 760 });
@@ -281,7 +310,7 @@ test("Ask AI conversation tabs persist across closing and reopening the Workbenc
     const connection = { name: "weather-prod", catalog: "open_meteo", location: "https://example.com", authentication: "anonymous", isDefault: true, isSignedIn: true };
     const empty = { columns: [], rows: [], rowCount: 0, truncated: false };
     const webview = { postMessage(request: { id: number; method: string }) {
-      const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? "test-key" : request.method === "query.run" ? empty : true;
+      const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? "test-key" : ["query.run", "query.editor", "query.agent"].includes(request.method) ? empty : true;
       setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0);
     }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
@@ -382,7 +411,7 @@ test("connections discover authentication instead of asking users to choose it",
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
   });
   await page.goto("http://127.0.0.1:4173/index.html");
-  await page.getByRole("tab", { name: "Connections" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByLabel("Authentication")).toHaveCount(0);
   await expect(page.getByText("If this service requires authentication, Cupola opens your browser when it connects.")).toBeVisible();
 
@@ -392,7 +421,7 @@ test("connections discover authentication instead of asking users to choose it",
     localStorage.setItem("vgi.excel.default-connection.v1", "weather");
   });
   await page.goto("http://127.0.0.1:4174/taskpane.html");
-  await page.getByRole("tab", { name: "Connections" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByLabel("Authentication")).toHaveCount(0);
   await expect(page.getByText("If this service requires authentication, Cupola opens a secure sign-in window when it connects.")).toBeVisible();
 });
@@ -408,11 +437,11 @@ test("desktop catalog keeps scrolling inside the schema and inspector panes", as
       truncated: false,
     };
     const fields = { columns: [{ name: "column_name", type: "VARCHAR" }, { name: "data_type", type: "VARCHAR" }], rows: [["value", "DOUBLE"]], rowCount: 1, truncated: false };
-    const webview = { postMessage(request: { id: number; method: string; params?: { sql?: string } }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : request.method === "query.run" ? (request.params?.sql?.includes("duckdb_columns()") ? fields : catalog) : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
+    const webview = { postMessage(request: { id: number; method: string; params?: { sql?: string } }) { const result = request.method === "connections.list" ? [connection] : request.method === "agent.key.load" ? null : ["query.run", "query.editor", "query.agent"].includes(request.method) ? (request.params?.sql?.includes("duckdb_columns()") ? fields : catalog) : true; setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0); }, addEventListener() {} };
     Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
   });
   await page.goto("http://127.0.0.1:4173/index.html");
-  await page.getByRole("tab", { name: "Catalog" }).click();
+  await page.getByRole("tab", { name: "Catalog View" }).click();
   const panel = page.locator("#panel-catalog");
   const tree = panel.locator(".catalog-tree");
   await expect(tree.getByText("function_99")).toBeAttached();
@@ -435,3 +464,50 @@ test("desktop catalog keeps scrolling inside the schema and inspector panes", as
   await expect(page.getByRole("tab", { name: "Query 2" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("SQL query")).toHaveValue(/FROM "open_meteo"\."main"\."function_99"/);
 });
+
+for (const host of ["desktop", "office"] as const) {
+  test(`${host} can open Connections with an empty store and retain a saved connection after reload`, async ({ page }) => {
+    await page.route("https://appsforoffice.microsoft.com/**", route => route.abort());
+    await page.addInitScript(() => {
+      const webview = { postMessage(request: { id: number; method: string; params?: { connection?: Record<string, unknown> } }) {
+        let connections = JSON.parse(localStorage.getItem("test.connections") ?? "[]");
+        if (request.method === "connections.save") {
+          connections = [{ ...request.params?.connection, isDefault: true }];
+          localStorage.setItem("test.connections", JSON.stringify(connections));
+        }
+        const result = request.method.startsWith("connections.") ? connections : request.method === "agent.key.load" ? null : true;
+        setTimeout(() => window.vgiReceiveHostResponse?.({ id: request.id, result }), 0);
+      }, addEventListener() {} };
+      Object.defineProperty(window, "chrome", { value: { webview }, configurable: true });
+    });
+    await page.goto(host === "desktop" ? "http://127.0.0.1:4173/index.html" : "http://127.0.0.1:4174/taskpane.html");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".workspace-tabs").getByRole("tab", { name: "Connections", exact: true })).toHaveCount(0);
+    await expect(page.locator('.workspace-tabs [aria-selected="true"]')).toHaveCount(0);
+    await page.getByRole("tab", { name: "Query Editor", exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "Ask AI", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Back to workspace", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Ask AI", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("tab", { name: "About", exact: true }).click();
+    const about = page.getByRole("tabpanel", { name: "About", exact: true });
+    await expect(about).toBeVisible();
+    await expect(about.getByRole("link", { name: "Query.Farm" })).toHaveAttribute("href", "https://query.farm");
+    await expect(about).toContainText("Version 0.5.0");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("tab", { name: "Connections", exact: true }).click();
+    await page.getByLabel("Connection name", { exact: true }).fill("saved-test");
+    await page.locator(".connection-form").getByLabel("Catalog", { exact: true }).fill("sample");
+    await page.getByLabel("Server address", { exact: true }).fill("https://example.com");
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.reload();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("button", { name: /saved-test/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Cupola needs to restart" })).toHaveCount(0);
+  });
+}

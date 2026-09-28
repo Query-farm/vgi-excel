@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirmation";
 import type { CatalogFunction, QueryResult } from "@query-farm/vgi-excel-core";
 import { wrapperFormula, wrapperName } from "@query-farm/vgi-excel-core";
 import { sanitizeTableName } from "./browser-backend";
@@ -57,7 +58,7 @@ export async function importSelection(): Promise<string> {
   return "excel.selection";
 }
 
-export async function insertResult(result: QueryResult, tableName = "VGI_Result", source?: SnapshotSource): Promise<WorkbookWriteOutcome | null> {
+export async function insertResult(result: QueryResult, tableName = "VGI_Result"): Promise<WorkbookWriteOutcome | null> {
   assertCompleteExcelResult(result);
   return Excel.run(async (context) => {
     const active = context.workbook.getActiveCell();
@@ -69,7 +70,7 @@ export async function insertResult(result: QueryResult, tableName = "VGI_Result"
     const target = sheet.getRangeByIndexes(active.rowIndex, active.columnIndex, result.rows.length + 1, result.columns.length);
     target.load("address"); await context.sync();
     const occupied = !usedRange.isNullObject && rangesOverlap(active.rowIndex, active.columnIndex, result.rows.length + 1, result.columns.length, usedRange.rowIndex, usedRange.columnIndex, usedRange.rowCount, usedRange.columnCount);
-    if (occupied && !window.confirm(`The output range ${target.address} overlaps existing worksheet data. Continue?`)) return null;
+    if (occupied && !await confirmAction(`The output range ${target.address} overlaps existing worksheet data. Replace that data?`, "Replace existing data", "Replace data")) return null;
     await writeResultRows(context, sheet, active.rowIndex, active.columnIndex, result);
     const existing = context.workbook.tables;
     existing.load("items/name");
@@ -81,7 +82,6 @@ export async function insertResult(result: QueryResult, tableName = "VGI_Result"
     const table = context.workbook.tables.add(target, true);
     table.name = name;
     target.format.autofitColumns();
-    if (source) context.workbook.settings.add(SNAPSHOT_PREFIX + name, JSON.stringify({ table: name, ...source, updatedAt: new Date().toISOString() }));
     await context.sync();
     return { sheet: sheet.name, table: name, address: target.address, rows: result.rows.length };
   });

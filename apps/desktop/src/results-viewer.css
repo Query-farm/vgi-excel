@@ -1,0 +1,29 @@
+:root { font: 14px "Segoe UI", system-ui, sans-serif; color: #211a12; background: #f7f3ea; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+.results-window { height: 100%; display: flex; flex-direction: column; padding: 16px; gap: 10px; overflow: hidden; }
+header, .viewer-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; flex: none; }
+.window-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.window-title img { width: 32px; height: 32px; }
+h1 { margin: 0; font: 650 18px Georgia, serif; overflow-wrap: anywhere; }
+p { margin: 5px 0; }
+.window-title p, .viewer-toolbar p { color: #5d4632; font-size: 12px; }
+.window-actions, .paging { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+button, select { font: inherit; color: inherit; background: #fffdf7; border: 1px solid #cfc4ad; border-radius: 6px; padding: 7px 10px; }
+button { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button:hover:not(:disabled) { background: #e6dbc2; }
+button:focus-visible, select:focus-visible, .viewer-grid:focus-visible { outline: 2px solid #7a5230; outline-offset: 2px; }
+button svg { width: 16px; height: 16px; }
+.paging { font-size: 12px; }
+.paging label { display: flex; align-items: center; gap: 6px; }
+.viewer-status { margin: 0; font-size: 12px; }
+.viewer-status:empty { display: none; }
+.viewer-grid { min-height: 0; flex: 1; overflow: auto; border: 1px solid #cfc4ad; background: #fffdf7; }
+table { border-collapse: separate; border-spacing: 0; min-width: 100%; font-size: 12px; }
+th, td { padding: 7px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #e6dbc2; border-right: 1px solid #e6dbc2; white-space: pre; }
+th { position: sticky; top: 0; background: #efe9db; z-index: 1; }
+th small { display: block; margin-top: 3px; font-weight: normal; color: #5d4632; }
+.empty-results { padding: 16px; }
+@media (max-width: 500px) { .results-window { padding: 10px; } .window-actions button { font-size: 12px; } }
+@media (prefers-color-scheme: dark) { :root { color: #f7f3ea; background: #191511; color-scheme: dark; } button, select, .viewer-grid { background: #211a12; border-color: #665445; } button:hover:not(:disabled), th { background: #3b2e22; } th,td { border-color: #4a4038; } .window-title p,.viewer-toolbar p,th small { color: #e6dbc2; } }

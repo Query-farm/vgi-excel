@@ -75,19 +75,22 @@ internal static class WorkbookBridge
         return results.ToArray();
     }
 
-    public static object InsertAtActiveCell(QueryResult result, string tableName, string? sql = null, string? connection = null)
+    public static object InsertAtActiveCell(QueryResult result, string tableName) => InsertAtActiveCell(result, tableName, ExcelDnaUtil.Application);
+
+    internal static object InsertAtActiveCell(QueryResult result, string tableName, object application)
     {
-        dynamic app = ExcelDnaUtil.Application;
+        dynamic app = application;
         dynamic sheet = app.ActiveSheet ?? throw new InvalidOperationException("No Excel worksheet is active.");
         dynamic output = WriteTable(result, sheet, app.ActiveCell, UniqueTableName(app.ActiveWorkbook, tableName), null);
-        if (!string.IsNullOrWhiteSpace(sql) && !string.IsNullOrWhiteSpace(connection))
-            SaveSnapshot(app.ActiveWorkbook, Convert.ToString(output.table) ?? tableName, connection!, sql!);
+        // New snapshots are ordinary static Excel tables. Legacy metadata is read only for existing tables.
         return output;
     }
 
-    public static object WriteResult(string mode, QueryResult result, string? sheetName, string tableName)
+    public static object WriteResult(string mode, QueryResult result, string? sheetName, string tableName) => WriteResult(mode, result, sheetName, tableName, ExcelDnaUtil.Application);
+
+    internal static object WriteResult(string mode, QueryResult result, string? sheetName, string tableName, object application)
     {
-        dynamic app = ExcelDnaUtil.Application;
+        dynamic app = application;
         dynamic book = app.ActiveWorkbook ?? throw new InvalidOperationException("No Excel workbook is active.");
         if (mode == "new_sheet")
         {
@@ -117,14 +120,15 @@ internal static class WorkbookBridge
         return true;
     }
 
-    public static object[] ManagedSnapshots()
+    public static object[] ManagedSnapshots() => ManagedSnapshots(((dynamic)ExcelDnaUtil.Application).ActiveWorkbook);
+
+    internal static object[] ManagedSnapshots(object workbook)
     {
-        dynamic app = ExcelDnaUtil.Application;
-        dynamic book = app.ActiveWorkbook ?? throw new InvalidOperationException("No Excel workbook is active.");
+        dynamic book = workbook ?? throw new InvalidOperationException("No Excel workbook is active.");
         var values = new List<object>();
         foreach (dynamic name in book.Names)
         {
-            var localName = Convert.ToString(name.Name)?.Split('!').Last() ?? "";
+            var localName = Convert.ToString((object)name.Name)?.Split('!').Last() ?? "";
             if (!localName.StartsWith(SnapshotPrefix, StringComparison.OrdinalIgnoreCase)) continue;
             var metadata = ReadSnapshot(name);
             if (metadata is not null) values.Add(new { metadata.Table, metadata.Connection, metadata.Sql, metadata.UpdatedAt });
@@ -132,26 +136,39 @@ internal static class WorkbookBridge
         return values.ToArray();
     }
 
-    public static object RefreshSnapshot(string tableName)
+    public static object RefreshSnapshot(string tableName) => RefreshSnapshot(tableName, ExcelDnaUtil.Application);
+
+    internal static object RefreshSnapshot(string tableName, object application)
     {
-        dynamic app = ExcelDnaUtil.Application;
+        dynamic app = application;
         dynamic book = app.ActiveWorkbook ?? throw new InvalidOperationException("No Excel workbook is active.");
         var metadata = FindSnapshot(book, tableName) ?? throw new InvalidOperationException($"Excel table “{tableName}” is not a Cupola-managed snapshot.");
         var result = new HaybarnClient().QueryResult(metadata.Sql, metadata.Connection, MaximumWorksheetDataRows + 1);
         if (result.Truncated || result.RowCount > MaximumWorksheetDataRows)
             throw new InvalidOperationException($"The refreshed result has {result.RowCount:N0} rows. Excel tables can contain at most {MaximumWorksheetDataRows:N0} data rows on a worksheet.");
-        var output = WriteResult("replace_table", result, null, tableName);
+        var output = WriteResult("replace_table", result, null, tableName, application);
         SaveSnapshot(book, tableName, metadata.Connection, metadata.Sql);
         return output;
     }
 
-    public static bool ForgetSnapshot(string tableName)
+    public static object CreateRefreshableCopy(string tableName) => CreateRefreshableCopy(((dynamic)ExcelDnaUtil.Application).ActiveWorkbook, tableName);
+
+    internal static object CreateRefreshableCopy(object workbook, string tableName)
     {
-        dynamic app = ExcelDnaUtil.Application;
-        dynamic book = app.ActiveWorkbook ?? throw new InvalidOperationException("No Excel workbook is active.");
+        dynamic book = workbook ?? throw new InvalidOperationException("No Excel workbook is active.");
+        var metadata = FindSnapshot(book, tableName) ?? throw new InvalidOperationException("The table no longer has Cupola refresh information.");
+        // Preserve the original table, its formulas, and metadata until the user verifies the new query.
+        return PowerQueryBridge.CreateInWorkbook(book, metadata.Sql, metadata.Connection, tableName + " Refreshable", true);
+    }
+
+    public static bool ForgetSnapshot(string tableName) => ForgetSnapshot(((dynamic)ExcelDnaUtil.Application).ActiveWorkbook, tableName);
+
+    internal static bool ForgetSnapshot(object workbook, string tableName)
+    {
+        dynamic book = workbook ?? throw new InvalidOperationException("No Excel workbook is active.");
         foreach (dynamic name in book.Names)
         {
-            var localName = Convert.ToString(name.Name)?.Split('!').Last() ?? "";
+            var localName = Convert.ToString((object)name.Name)?.Split('!').Last() ?? "";
             if (string.Equals(localName, SnapshotName(tableName), StringComparison.OrdinalIgnoreCase)) { name.Delete(); return true; }
         }
         return false;
@@ -178,9 +195,26 @@ internal static class WorkbookBridge
         if (existing is not null)
         {
             dynamic oldRange = existing.Range;
-            oldRange.ClearContents();
-            range.Value2 = values;
-            existing.Resize(range);
+            var oldColumns = Convert.ToInt32(oldRange.Columns.Count);
+            dynamic oldBody = existing.DataBodyRange;
+            if (oldBody is not null) oldBody.ClearContents();
+            dynamic resized = start.Resize[Math.Max(2, values.GetLength(0)), values.GetLength(1)];
+            existing.Resize(Range: (object)resized);
+            if (oldColumns > values.GetLength(1))
+                sheet.Cells[Convert.ToInt32(start.Row), Convert.ToInt32(start.Column) + values.GetLength(1)].Resize[1, oldColumns - values.GetLength(1)].ClearContents();
+            // Assign headers and body separately: replacing the entire table range can
+            // cause Excel to remove the ListObject and break structured references.
+            var headers = new object[1, values.GetLength(1)];
+            for (var column = 0; column < values.GetLength(1); column++) headers[0, column] = values[0, column];
+            existing.HeaderRowRange.Value2 = headers;
+            if (values.GetLength(0) > 1)
+            {
+                var body = new object[values.GetLength(0) - 1, values.GetLength(1)];
+                for (var row = 1; row < values.GetLength(0); row++)
+                for (var column = 0; column < values.GetLength(1); column++) body[row - 1, column] = values[row, column];
+                if (existing.DataBodyRange is null) existing.ListRows.Add();
+                existing.DataBodyRange.Value2 = body;
+            }
         }
         else
         {
@@ -249,7 +283,7 @@ internal static class WorkbookBridge
 
     private static void SaveSnapshot(dynamic book, string table, string connection, string sql)
     {
-        ForgetSnapshot(table);
+        ForgetSnapshot(book, table);
         var metadata = new SnapshotMetadata { Table = table, Connection = connection, Sql = sql, UpdatedAt = DateTime.UtcNow.ToString("O") };
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(metadata)));
         book.Names.Add(Name: SnapshotName(table), RefersTo: $"=\"{encoded}\"", Visible: false);
@@ -259,7 +293,7 @@ internal static class WorkbookBridge
     {
         foreach (dynamic name in book.Names)
         {
-            var localName = Convert.ToString(name.Name)?.Split('!').Last() ?? "";
+            var localName = Convert.ToString((object)name.Name)?.Split('!').Last() ?? "";
             if (string.Equals(localName, SnapshotName(table), StringComparison.OrdinalIgnoreCase)) return ReadSnapshot(name);
         }
         return null;

@@ -36,8 +36,8 @@ internal sealed class AgentClient
         string? inventoryError = null;
         try
         {
-            var catalog = SqlString(definition.Catalog);
-            inventory = _haybarn.QueryResult($@"SELECT table_catalog AS catalog, table_schema AS schema, table_name AS name, CASE WHEN table_type='VIEW' THEN 'view' ELSE 'table' END AS kind, '' AS description FROM information_schema.tables WHERE table_catalog={catalog} AND table_schema NOT IN ('information_schema','pg_catalog') UNION ALL SELECT database_name, schema_name, function_name, CASE WHEN function_type IN ('macro','table_macro') THEN 'macro' ELSE function_type END, COALESCE(description, comment, '') FROM duckdb_functions() WHERE database_name={catalog} ORDER BY 1,2,4,3", connection, 20_000);
+            var catalog = string.Join(",", ConnectionStore.ResolveAttachments(definition).Select(member => SqlString(member.Catalog)));
+            inventory = _haybarn.QueryResult($@"SELECT table_catalog AS catalog, table_schema AS schema, table_name AS name, CASE WHEN table_type='VIEW' THEN 'view' ELSE 'table' END AS kind, '' AS description FROM information_schema.tables WHERE table_catalog IN ({catalog}) AND table_schema NOT IN ('information_schema','pg_catalog') UNION ALL SELECT database_name, schema_name, function_name, CASE WHEN function_type IN ('macro','table_macro') THEN 'macro' ELSE function_type END, COALESCE(description, comment, '') FROM duckdb_functions() WHERE database_name IN ({catalog}) ORDER BY 1,2,4,3", connection, 20_000);
         }
         catch (Exception error) { inventoryError = error.Message; }
         var systemPrompt = AgentPromptBuilder.Build(definition, inventory, inventoryError);
@@ -72,22 +72,44 @@ internal sealed class AgentClient
 
     private static async Task<JObject> Send(string apiKey, string systemPrompt, JArray messages)
     {
-        var body = new JObject
-        {
-            ["model"] = Environment.GetEnvironmentVariable("VGI_EXCEL_ANTHROPIC_MODEL") ?? "claude-sonnet-4-5",
-            ["max_tokens"] = 4096,
-            ["system"] = systemPrompt,
-            ["tools"] = Tools.DeepClone(),
-            ["messages"] = messages.DeepClone()
-        };
+        var body = BuildRequest(
+            Environment.GetEnvironmentVariable("VGI_EXCEL_ANTHROPIC_MODEL") ?? "claude-sonnet-5",
+            systemPrompt, messages,
+            Environment.GetEnvironmentVariable("VGI_EXCEL_ANTHROPIC_EFFORT") ?? "high");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
         request.Headers.Add("x-api-key", apiKey);
         request.Headers.Add("anthropic-version", "2023-06-01");
+        var workspace = Environment.GetEnvironmentVariable("VGI_EXCEL_ANTHROPIC_WORKSPACE_ID")?.Trim();
+        if (!string.IsNullOrEmpty(workspace)) request.Headers.Add("anthropic-workspace-id", workspace);
         request.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
         using var response = await Http.SendAsync(request);
         var value = await response.Content.ReadAsStringAsync();
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Anthropic request failed ({(int)response.StatusCode}): {value}");
-        return JObject.Parse(value);
+        var parsed = JObject.Parse(value);
+        if ((string?)parsed["stop_reason"] == "max_tokens") throw new InvalidOperationException("The AI response reached its output limit. Ask a smaller question.");
+        return parsed;
+    }
+
+    internal static JObject BuildRequest(string model, string systemPrompt, JArray messages, string effort = "high")
+    {
+        var adaptive = model == "claude-sonnet-5" || model == "claude-opus-5";
+        var tools = (JArray)Tools.DeepClone();
+        tools.Last!["cache_control"] = new JObject { ["type"] = "ephemeral" };
+        var body = new JObject
+        {
+            ["model"] = model,
+            ["max_tokens"] = adaptive || model == "claude-haiku-4-5-20251001" ? 16384 : 8192,
+            ["system"] = new JArray(new JObject { ["type"] = "text", ["text"] = systemPrompt, ["cache_control"] = new JObject { ["type"] = "ephemeral" } }),
+            ["cache_control"] = new JObject { ["type"] = "ephemeral" },
+            ["tools"] = tools,
+            ["messages"] = messages.DeepClone()
+        };
+        if (adaptive)
+        {
+            body["thinking"] = new JObject { ["type"] = "adaptive" };
+            body["output_config"] = new JObject { ["effort"] = new[] { "low", "medium", "high", "xhigh", "max" }.Contains(effort) ? effort : "high" };
+        }
+        return body;
     }
 
     private (string Content, QueryResult? Result) RunTool(string name, JObject input, string connection)

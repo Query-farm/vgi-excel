@@ -1,11 +1,14 @@
+import { CLARIFICATION_TOOL, RESULT_SCOPE_SCHEMA } from "./agent-experience.js";
+import { CATALOG_AGENT_TOOLS, CATALOG_TOOL_NAMES } from "./agent-catalog.js";
 import { assertAgentReadOnlySql } from "./sql.js";
 import type { QueryBackend, QueryResult } from "./types.js";
 
 export interface AgentToolContext {
   backend: QueryBackend;
-  listTables(): Promise<unknown>;
-  listFunctions(): Promise<unknown>;
-  describeTable(input: { catalog?: string; schema: string; table: string }): Promise<unknown>;
+  catalogTool?(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
+  listTables(signal?: AbortSignal): Promise<unknown>;
+  listFunctions(signal?: AbortSignal): Promise<unknown>;
+  describeTable(input: { catalog?: string; schema: string; table: string }, signal?: AbortSignal): Promise<unknown>;
   createQuery?(input: { name: string; sql: string }): Promise<void> | void;
 }
 
@@ -18,18 +21,21 @@ export async function executeAgentTool(
   name: string,
   input: Record<string, unknown>,
   context: AgentToolContext,
+  signal?: AbortSignal,
 ): Promise<AgentToolResult> {
+  signal?.throwIfAborted();
+  if (context.catalogTool && CATALOG_TOOL_NAMES.has(name)) return { content: await context.catalogTool(name, input, signal) };
   switch (name) {
     case "run_sql": {
       const sql = String(input.sql ?? "");
       assertAgentReadOnlySql(sql);
-      const queryResult = await context.backend.query(sql, { maxRows: 10_000 });
+      const queryResult = await context.backend.query(sql, { maxRows: 10_000, signal });
       return { content: summarizeResult(queryResult), queryResult };
     }
     case "list_tables":
-      return { content: JSON.stringify(await context.listTables()) };
+      return { content: JSON.stringify(await context.listTables(signal)) };
     case "list_functions":
-      return { content: JSON.stringify(await context.listFunctions()) };
+      return { content: JSON.stringify(await context.listFunctions(signal)) };
     case "describe_table":
       return {
         content: JSON.stringify(
@@ -37,7 +43,7 @@ export async function executeAgentTool(
             catalog: input.catalog ? String(input.catalog) : undefined,
             schema: String(input.schema ?? ""),
             table: String(input.table ?? ""),
-          }),
+          }, signal),
         ),
       };
     case "create_query_tab": {
@@ -60,15 +66,16 @@ export function summarizeResult(result: QueryResult): string {
     columns: result.columns,
     rows: result.rows.slice(0, 20),
     row_count: result.rowCount,
-    truncated: result.truncated ?? result.rows.length < result.rowCount,
+    sample_row_count: Math.min(20, result.rows.length),
+    truncated: result.rows.length > 20 || !!result.truncated || result.rows.length < result.rowCount,
   });
 }
 
-export const AGENT_TOOLS = [
+const BASE_AGENT_TOOLS = [
   {
     name: "run_sql",
     description: "Run one read-only SQL statement. Returns columns, up to 20 sample rows, and the total row count.",
-    input_schema: { type: "object", properties: { sql: { type: "string" } }, required: ["sql"] },
+    input_schema: { type: "object", properties: { sql: { type: "string" }, scope: RESULT_SCOPE_SCHEMA }, required: ["sql"] },
   },
   {
     name: "list_tables",
@@ -107,3 +114,5 @@ export const AGENT_TOOLS = [
     },
   },
 ] as const;
+
+export const AGENT_TOOLS = [CLARIFICATION_TOOL, ...BASE_AGENT_TOOLS.filter(tool => !CATALOG_TOOL_NAMES.has(tool.name)), ...CATALOG_AGENT_TOOLS];

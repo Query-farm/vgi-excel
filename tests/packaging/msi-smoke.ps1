@@ -22,8 +22,24 @@ while ($true) {
     $names += [string](Invoke-Com $record 'StringData' 'GetProperty' @(1))
 }
 $longNames = @($names | ForEach-Object { if ($_ -match '\|') { ($_ -split '\|', 2)[1] } else { $_ } })
-foreach ($required in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'vgi.duckdb_extension', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'install-xll.ps1', 'Update Cupola for Excel.cmd', 'index.html', 'workbench.js', 'workbench.css')) {
+foreach ($required in @('Vgi.ExcelDna64-packed.xll', 'Cupola.ExcelLoader.dll', 'cupola-mark.svg', 'build-info.json', 'haybarn.exe', 'haybarn_odbc.dll', 'ODBC-NOTICES.txt', 'vgi.duckdb_extension', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'index.html', 'results.html', 'results.js', 'workbench.js', 'workbench.css')) {
     Assert-True ($longNames -contains $required) "MSI should contain $required"
 }
 Assert-True (-not ($longNames | Where-Object { $_ -match 'Companion' })) 'MSI must not contain the retired companion'
-Write-Host 'PASS: MSI contents and companion exclusion'
+Assert-True (-not ($longNames | Where-Object { $_ -match '\.map$' })) 'MSI must not contain source maps'
+$registryView = Invoke-Com $database 'OpenView' 'InvokeMethod' @('SELECT `Root`, `Key`, `Name`, `Value` FROM `Registry`')
+$null = Invoke-Com $registryView 'Execute' 'InvokeMethod' @()
+$driverRegistered = $false
+$driverListed = $false
+while ($true) {
+    $record = Invoke-Com $registryView 'Fetch' 'InvokeMethod' @()
+    if ($null -eq $record) { break }
+    $root = [string](Invoke-Com $record 'StringData' 'GetProperty' @(1))
+    $key = [string](Invoke-Com $record 'StringData' 'GetProperty' @(2))
+    $name = [string](Invoke-Com $record 'StringData' 'GetProperty' @(3))
+    $value = [string](Invoke-Com $record 'StringData' 'GetProperty' @(4))
+    if ($root -eq '2' -and $key -eq 'SOFTWARE\ODBC\ODBCINST.INI\Cupola for Excel' -and $name -eq 'Driver' -and $value -eq '[#CupolaOdbcDll]') { $driverRegistered = $true }
+    if ($root -eq '2' -and $key -eq 'SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers' -and $name -eq 'Cupola for Excel' -and $value -eq 'Installed') { $driverListed = $true }
+}
+Assert-True ($driverRegistered -and $driverListed) 'MSI should register its own Cupola ODBC DLL machine-wide'
+Write-Host 'PASS: MSI contents, ODBC registration, companion exclusion, and source-map exclusion'

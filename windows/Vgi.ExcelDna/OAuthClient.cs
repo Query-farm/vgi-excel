@@ -54,7 +54,7 @@ internal static class OAuthClient
 
     public static OAuthAttachCredential GetAttachCredential(VgiConnection connection)
     {
-        var tokens = Tokens(connection) ?? throw new InvalidOperationException($"Sign in to the '{connection.Name}' connection from Cupola > Connections.");
+        var tokens = Tokens(connection) ?? throw new InvalidOperationException($"OAuth sign-in is required for the '{connection.Name}' connection. Open Cupola > Connections.");
         var credential = SelectAttachCredential(tokens);
         OAuthTraceLog.Write("oauth_attach_credential_selected", "attach-" + Guid.NewGuid().ToString("N"), connection,
             new { option = credential.Option, credential_length = credential.Value.Length });
@@ -182,7 +182,7 @@ internal static class OAuthClient
     {
         var flowId = "refresh-" + Guid.NewGuid().ToString("N");
         var tokens = Tokens(connection);
-        if (tokens is null) throw new InvalidOperationException($"Sign in to the '{connection.Name}' connection from Cupola > Connections.");
+        if (tokens is null) throw new InvalidOperationException($"OAuth sign-in is required for the '{connection.Name}' connection. Open Cupola > Connections.");
         if (tokens.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(1) && !string.IsNullOrWhiteSpace(tokens.Bearer)) return tokens.Bearer;
         if (string.IsNullOrWhiteSpace(tokens.RefreshToken)) throw new InvalidOperationException("The OAuth session expired. Sign in again.");
         var refreshed = Exchange(tokens.TokenEndpoint, new Dictionary<string, string>
@@ -207,10 +207,14 @@ internal static class OAuthClient
 
     public static void SignOut(VgiConnection connection)
     {
-        lock (Gate) Cache.Remove(Key(connection));
-        OAuthSessionStore.Delete(Target(connection));
-        // Remove sessions written by the short-lived Credential Manager implementation.
-        CredentialVault.Delete(Target(connection));
+        HaybarnSessions.Cache.Invalidate(connection.Name, () =>
+        {
+            lock (Gate) Cache.Remove(Key(connection));
+            OAuthSessionStore.Delete(Target(connection));
+            // Remove sessions written by the short-lived Credential Manager implementation.
+            CredentialVault.Delete(Target(connection));
+        });
+        ConnectionStore.InvalidateMemberSessions(connection.Name);
         OAuthTraceLog.Write("oauth_signed_out", "signout-" + Guid.NewGuid().ToString("N"), connection);
     }
 

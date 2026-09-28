@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Text.RegularExpressions;
 using ExcelDna.Integration;
 using Newtonsoft.Json;
@@ -40,34 +41,17 @@ internal sealed class HaybarnClient
         return response.Rows[0][0] ?? string.Empty;
     }
 
-    public QueryResult QueryResult(string sql, string? connection = null, int? maxRows = null)
+    public QueryResult QueryResult(string sql, string? connection = null, int? maxRows = null, CancellationToken cancellation = default)
     {
         if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("SQL is required.");
-        var definition = ConnectionStore.Resolve(connection);
-        ConnectionStore.Validate(definition);
-        OAuthClient.PrepareForAttach(definition);
-        try { return QueryResultOnce(definition, sql, maxRows); }
-        catch (Exception error) when (OAuthClient.ShouldPromptForSignIn(error))
+        var name = ConnectionStore.Resolve(connection).Name;
+        return HaybarnSessions.Cache.Query(name, () =>
         {
-            OAuthTraceLog.Write("oauth_attach_authentication_rejected", "attach-" + Guid.NewGuid().ToString("N"), definition, error: error);
-            OAuthClient.SignOut(definition);
-            definition.Authentication = "oauth";
-            ConnectionStore.Save(definition, false);
-            OAuthClient.SignInAsync(definition).GetAwaiter().GetResult();
-            return QueryResultOnce(definition, sql, maxRows);
-        }
-        catch (Exception error) when (definition.Authentication == "oauth" && OAuthClient.IsAuthenticationFailure(error))
-        {
-            OAuthTraceLog.Write("oauth_attach_authentication_failed_no_retry", "attach-" + Guid.NewGuid().ToString("N"), definition, error: error);
-            throw;
-        }
-    }
-
-    private static QueryResult QueryResultOnce(VgiConnection definition, string sql, int? maxRows)
-    {
-        var started = Stopwatch.StartNew();
-        var output = Execute(BuildScript(definition, AddDescribePrelude(sql)));
-        return ParseResult(output, maxRows, started.Elapsed.TotalMilliseconds);
+            var definition = ConnectionStore.Resolve(name);
+            var attachments = ConnectionStore.ResolveAttachments(definition);
+            foreach (var member in attachments) OAuthClient.PrepareForAttach(member);
+            return BuildSessionScript(attachments, "");
+        }, sql, maxRows, cancellation);
     }
 
     internal static string AddDescribePrelude(string sql)
@@ -112,54 +96,42 @@ internal sealed class HaybarnClient
     }
 
     public static string Diagnostics() =>
-        $"Product={ProductInfo.Name} {ProductInfo.Version}; Build={ProductInfo.Build}; Transport=HTTPS only; TimeZone={UserTimeZone.CurrentIanaId()}; Engine={ExecutablePath()}; Extension={ExtensionPath()}; Registry={ConnectionStore.DiagnosticsPath}; OAuthLog={OAuthTraceLog.Path}; AgentLog={AgentTraceLog.Path}; Connections={ConnectionStore.List().Count}";
+        $"Product={ProductInfo.Name} {ProductInfo.Version}; Build={ProductInfo.Build}; Transport=HTTPS only; TimeZone={UserTimeZone.CurrentIanaId()}; Engine={NativeLibraryPath()}; SessionMode=Persistent native; Extension={ExtensionPath()}; Registry={ConnectionStore.DiagnosticsPath}; OAuthLog={OAuthTraceLog.Path}; AgentLog={AgentTraceLog.Path}; Connections={ConnectionStore.List().Count}";
+
+    internal static string ProbePrelude()
+    {
+        var extension = ExtensionPath();
+        var load = File.Exists(extension) ? $"LOAD {SqlString(extension)};" : "INSTALL vgi FROM community; LOAD vgi;";
+        return load + " SET vgi_http_timeout_seconds=5; SET http_timeout=5; SET http_retries=0;";
+    }
 
     internal static string BuildScript(VgiConnection definition, string sql, string? timeZone = null)
+        => BuildSessionScript(new[] { definition }, sql, timeZone);
+
+    internal static string BuildSessionScript(IReadOnlyList<VgiConnection> attachments, string sql, string? timeZone = null, bool probe = false)
     {
+        if (attachments.Count == 0) throw new ArgumentException("A session requires at least one catalog.");
         var builder = new StringBuilder();
         var extension = ExtensionPath();
         if (File.Exists(extension)) builder.AppendLine($"LOAD {SqlString(extension)};");
         else { builder.AppendLine("INSTALL vgi FROM community;"); builder.AppendLine("LOAD vgi;"); }
         builder.AppendLine($"SET TimeZone={SqlString(timeZone ?? UserTimeZone.CurrentIanaId())};");
-        var options = new List<string> { "TYPE vgi", $"LOCATION {SqlString(definition.Location)}" };
-        if (definition.Authentication == "oauth")
+        foreach (var definition in attachments)
         {
-            var credential = OAuthClient.GetAttachCredential(definition);
-            options.Add($"{credential.Option} {SqlString(credential.Value)}");
+            if (probe) builder.AppendLine($"SET vgi_oauth_enabled={(definition.Authentication == "oauth" ? "true" : "false")};");
+            var options = new List<string> { "TYPE vgi", $"LOCATION {SqlString(definition.Location)}" };
+            if (definition.Authentication == "oauth")
+            {
+                var credential = OAuthClient.GetAttachCredential(definition);
+                options.Add($"{credential.Option} {SqlString(credential.Value)}");
+            }
+            foreach (var option in definition.AttachOptions ?? new Dictionary<string, object?>())
+                options.Add($"{option.Key} {SqlLiteral(option.Value)}");
+            builder.AppendLine($"ATTACH {SqlString(definition.Catalog)} AS {QuoteIdentifier(definition.Catalog)} ({string.Join(", ", options)});");
         }
-        foreach (var option in definition.AttachOptions ?? new Dictionary<string, object?>())
-            options.Add($"{option.Key} {SqlLiteral(option.Value)}");
-        builder.AppendLine($"ATTACH {SqlString(definition.Catalog)} AS {QuoteIdentifier(definition.Catalog)} ({string.Join(", ", options)});");
+        builder.AppendLine($"USE {QuoteIdentifier(attachments[0].Catalog)};");
         builder.AppendLine(sql);
         return builder.ToString();
-    }
-
-    private static string Execute(string script)
-    {
-        var start = new ProcessStartInfo(ExecutablePath(), "-json")
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the bundled Haybarn query process.");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        process.StandardInput.Write(script);
-        process.StandardInput.Close();
-        if (!process.WaitForExit(300_000))
-        {
-            try { process.Kill(); } catch { }
-            throw new TimeoutException("The VGI query exceeded five minutes.");
-        }
-        var output = outputTask.GetAwaiter().GetResult();
-        var error = errorTask.GetAwaiter().GetResult();
-        if (process.ExitCode != 0) throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Haybarn query failed." : Redact(error.Trim()));
-        return output;
     }
 
     internal static QueryResult ParseResult(string output, int? maxRows, double elapsedMs)
@@ -284,10 +256,16 @@ internal sealed class HaybarnClient
         byte or short or int or long or float or double or decimal => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "NULL",
         _ => SqlString(Convert.ToString(value, CultureInfo.InvariantCulture) ?? "")
     };
-    private static string SqlString(string value) => $"'{value.Replace("'", "''")}'";
+    internal static string SqlString(string value) => $"'{value.Replace("'", "''")}'";
     private static string QuoteIdentifier(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
     private static string Redact(string value) => Regex.Replace(value,
         "(?i)(bearer_token|oauth_refresh_token)\\s+['\\\"]?[^'\\\"\\s,;]+", "$1 ***");
+
+    internal static string NativeLibraryPath()
+    {
+        var configured = Environment.GetEnvironmentVariable("VGI_HAYBARN_NATIVE_PATH");
+        return Path.GetFullPath(string.IsNullOrWhiteSpace(configured) ? Path.Combine(AddInDirectory(), "haybarn_odbc.dll") : configured);
+    }
 
     private static string ExecutablePath()
     {

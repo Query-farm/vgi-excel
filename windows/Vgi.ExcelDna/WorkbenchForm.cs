@@ -34,7 +34,8 @@ internal sealed class NativeWorkbenchForm : Form
 
     public NativeWorkbenchForm()
     {
-        Text = ProductInfo.Name;
+        Text = ProductInfo.WindowTitle;
+        CupolaWindowIcon.Apply(this);
         Width = 960;
         Height = 680;
         MinimumSize = new Size(720, 500);
@@ -211,11 +212,10 @@ ORDER BY 1, 2, 3";
         {
             var candidate = CurrentConnection();
             ConnectionStore.Validate(candidate);
-            ConnectionStore.Save(candidate);
             var message = "";
             var succeeded = await Busy(async () =>
             {
-                var result = await Task.Run(() => _client.QueryResult("SELECT current_catalog(), current_schema();", candidate.Name, 1));
+                var result = await ConnectionProbe.Test(candidate);
                 message = result.Rows.Length == 1 ? "Connection successful." : "The connection returned no result.";
             });
             if (succeeded) MessageBox.Show(this, message, "VGI connection", MessageBoxButtons.OK, MessageBoxIcon.Information);

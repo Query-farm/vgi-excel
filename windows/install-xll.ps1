@@ -9,6 +9,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$machineProduct = Get-ItemProperty 'HKLM:\SOFTWARE\QueryFarm\Cupola' -ErrorAction SilentlyContinue
+if ($machineProduct -and $machineProduct.InstallDirectory) {
+    throw 'Cupola is installed machine-wide by MSI. Use the MSI deployment to update it; the developer updater cannot replace a managed installation.'
+}
 
 function Get-ExcelArchitecture {
     if ($Architecture -ne 'Auto') { return $Architecture }
@@ -77,8 +81,13 @@ function Register-VgiXll([string] $Version, [string] $XllPath) {
     New-ItemProperty -Path $manager -Name $XllPath -PropertyType String -Value '' -Force | Out-Null
 }
 
+function Get-RunningExcel {
+    # Windows can retain an exited process entry while another process holds a handle.
+    Get-Process EXCEL -ErrorAction SilentlyContinue | Where-Object { -not $_.HasExited }
+}
+
 function Stop-ExcelSafely {
-    $processes = @(Get-Process EXCEL -ErrorAction SilentlyContinue)
+    $processes = @(Get-RunningExcel)
     if ($processes.Count -eq 0) { return $false }
 
     $excel = $null
@@ -111,11 +120,11 @@ function Stop-ExcelSafely {
     }
 
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        if (@(Get-Process EXCEL -ErrorAction SilentlyContinue).Count -eq 0) { return $true }
+        if (@(Get-RunningExcel).Count -eq 0) { return $true }
         Start-Sleep -Milliseconds 250
     }
 
-    $remaining = @(Get-Process EXCEL -ErrorAction SilentlyContinue)
+    $remaining = @(Get-RunningExcel)
     $visible = @($remaining | Where-Object { $_.MainWindowHandle -ne 0 })
     if ($visible.Count -gt 0) {
         throw 'Excel did not close cleanly. Save and close its visible windows, then run the updater again.'
@@ -125,14 +134,14 @@ function Stop-ExcelSafely {
     # prompts or ribbon UI and would otherwise keep the previous XLL loaded.
     $remaining | Stop-Process -Force -ErrorAction SilentlyContinue
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
-        if (@(Get-Process EXCEL -ErrorAction SilentlyContinue).Count -eq 0) { return $true }
+        if (@(Get-RunningExcel).Count -eq 0) { return $true }
         Start-Sleep -Milliseconds 250
     }
     throw 'A hidden Excel process could not be stopped. Restart Windows before updating Cupola.'
 }
 
 $package = (Resolve-Path $PackagePath).Path
-foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'vgi.duckdb_extension', 'WebView2Loader.dll', 'web\index.html')) {
+foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'vgi.duckdb_extension', 'haybarn_odbc.dll', 'ODBC-NOTICES.txt', 'WebView2Loader.dll', 'web\index.html')) {
     $null = Get-Item (Join-Path $package $file)
 }
 
@@ -140,13 +149,13 @@ if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
     $InstallRoot = Join-Path $env:LOCALAPPDATA 'QueryFarm\VgiExcel\AddIn'
 }
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
-$excelWasRunning = @(Get-Process EXCEL -ErrorAction SilentlyContinue).Count -gt 0
+$excelWasRunning = @(Get-RunningExcel).Count -gt 0
 if ($excelWasRunning -and $RestartExcel) { $null = Stop-ExcelSafely }
 
 $versionName = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $versionDirectory = Join-Path (Join-Path $InstallRoot 'versions') $versionName
 New-Item -ItemType Directory -Force $versionDirectory | Out-Null
-foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'vgi.duckdb_extension')) {
+foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'vgi.duckdb_extension', 'haybarn_odbc.dll', 'ODBC-NOTICES.txt')) {
     Copy-Item (Join-Path $package $file) (Join-Path $versionDirectory $file) -Force
 }
 Copy-Item (Join-Path $package 'WebView2Loader.dll') (Join-Path $versionDirectory 'WebView2Loader.dll') -Force
@@ -167,6 +176,11 @@ foreach ($legacy in @('companion-token.bin', 'pairing-code.txt', 'connections.js
 
 $detectedArchitecture = Get-ExcelArchitecture
 $xllName = if ($detectedArchitecture -eq 'x64') { 'Vgi.ExcelDna64-packed.xll' } else { 'Vgi.ExcelDna-packed.xll' }
+# Windows ODBC driver registrations are machine-wide; the helper elevates only this step.
+if ($detectedArchitecture -eq 'x64') {
+    & (Join-Path $package 'register-odbc.ps1') -DriverPath (Join-Path $versionDirectory 'haybarn_odbc.dll')
+}
+
 $installedXll = Join-Path $versionDirectory $xllName
 $versions = @(Get-OfficeVersions)
 foreach ($version in $versions) { Register-VgiXll $version $installedXll }

@@ -5,6 +5,7 @@ const root = JSON.parse(await read("package.json"));
 const version = root.version;
 const build = root.cupolaBuild;
 const checks = [
+  ["windows/Cupola.ExcelLoader/Cupola.ExcelLoader.csproj", (text) => text.includes(`<Version>${version}</Version>`) && text.includes(`<AssemblyVersion>${version}.0</AssemblyVersion>`), `Excel loader version ${version}`],
   ["apps/desktop/package.json", (text) => JSON.parse(text).version === version, `version ${version}`],
   ["apps/office/package.json", (text) => JSON.parse(text).version === version, `version ${version}`],
   ["packages/core/package.json", (text) => JSON.parse(text).version === version, `version ${version}`],

@@ -1,0 +1,635 @@
+diff --git a/CMakeLists.txt.in b/CMakeLists.txt.in
+index 10dcb88d..a678f14f 100644
+--- a/CMakeLists.txt.in
++++ b/CMakeLists.txt.in
+@@ -104,6 +104,7 @@ add_library(haybarn_odbc SHARED ${ALL_OBJECT_FILES})
+ target_compile_definitions(haybarn_odbc PRIVATE -DDUCKDB_STATIC_BUILD)
+ if(WIN32)
+   target_compile_options(haybarn_odbc PRIVATE /bigobj)
++  target_link_libraries(haybarn_odbc crypt32 advapi32 shell32 ole32 winhttp)
+ endif()
+ 
+ set_target_properties(haybarn_odbc PROPERTIES DEFINE_SYMBOL "DUCKDB_ODBC_API")
+diff --git a/src/odbc_driver/connect/CMakeLists.txt b/src/odbc_driver/connect/CMakeLists.txt
+index e7c272cd..1e98f75b 100644
+--- a/src/odbc_driver/connect/CMakeLists.txt
++++ b/src/odbc_driver/connect/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-add_library(odbc_connect OBJECT connect.cpp session_init.cpp)
++add_library(odbc_connect OBJECT connect.cpp session_init.cpp cupola_connection.cpp)
+ 
+ target_compile_definitions(odbc_connect PRIVATE -DDUCKDB_STATIC_BUILD)
+ 
+diff --git a/src/odbc_driver/connect/connect.cpp b/src/odbc_driver/connect/connect.cpp
+index 141f7fc2..33f7abd5 100644
+--- a/src/odbc_driver/connect/connect.cpp
++++ b/src/odbc_driver/connect/connect.cpp
+@@ -1,12 +1,13 @@
+ #include "connect.hpp"
+ 
+-#include "duckdb/main/db_instance_cache.hpp"
++#include "cupola_connection.hpp"
+ #include "duckdb/common/virtual_file_system.hpp"
++#include "duckdb/main/db_instance_cache.hpp"
++#include "session_init.hpp"
+ 
++#include <set>
+ #include <utility>
+ 
+-#include "session_init.hpp"
+-
+ using namespace duckdb;
+ 
+ //! The database instance cache, used so that multiple connections to the same file point to the same database object
+@@ -83,28 +84,69 @@ SQLRETURN Connect::FindKeyValPair(const std::string &row) {
+ }
+ 
+ SQLRETURN Connect::ParseInputStr() {
+-	size_t row_pos;
+-	std::string row;
+-
+-	if (input_str.empty()) {
+-		return SQL_SUCCESS;
+-	}
+-
+-	while ((row_pos = input_str.find(ROW_DEL)) != std::string::npos) {
+-		row = input_str.substr(0, row_pos);
+-		SQLRETURN ret = FindKeyValPair(row);
+-		if (!SetSuccessWithInfo(ret)) {
+-			return ret;
++	// ODBC braced values may contain semicolons and escaped closing braces.
++	std::set<std::string> supplied;
++	bool duplicate = false, unexpected = false;
++	size_t pos = 0;
++	while (pos < input_str.size()) {
++		while (pos < input_str.size() && (input_str[pos] == ';' || isspace((unsigned char)input_str[pos])))
++			pos++;
++		if (pos == input_str.size())
++			break;
++		auto equal = input_str.find('=', pos);
++		if (equal == std::string::npos)
++			return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect", "Invalid ODBC connection string",
++			                           SQLStateType::ST_HY000, "");
++		auto key = StringUtil::Lower(OdbcUtils::TrimString(input_str.substr(pos, equal - pos)));
++		duplicate |= !supplied.insert(key).second;
++		pos = equal + 1;
++		while (pos < input_str.size() && isspace((unsigned char)input_str[pos]))
++			pos++;
++		std::string value;
++		if (pos < input_str.size() && input_str[pos] == '{') {
++			pos++;
++			bool closed = false;
++			while (pos < input_str.size()) {
++				char ch = input_str[pos++];
++				if (ch == '}') {
++					if (pos < input_str.size() && input_str[pos] == '}')
++						pos++;
++					else {
++						closed = true;
++						break;
++					}
++				}
++				value += ch;
++			}
++			while (pos < input_str.size() && isspace((unsigned char)input_str[pos]))
++				pos++;
++			if (!closed || (pos < input_str.size() && input_str[pos] != ';'))
++				return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect", "Invalid ODBC braced value",
++				                           SQLStateType::ST_HY000, "");
++		} else {
++			auto end = input_str.find(';', pos);
++			if (end == std::string::npos)
++				end = input_str.size();
++			value = OdbcUtils::TrimString(input_str.substr(pos, end - pos));
++			pos = end;
+ 		}
+-		input_str.erase(0, row_pos + 1);
+-	}
+-
+-	if (!input_str.empty()) {
+-		SQLRETURN ret = FindKeyValPair(input_str);
+-		if (!SetSuccessWithInfo(ret)) {
+-			return ret;
++		if (key != "driver" && key != "cupolaconnection" &&
++		    !((key == "uid" || key == "pwd" || key == "trusted_connection") && value.empty()))
++			unexpected = true;
++		if (key == "cupolaconnection") {
++			config_map[key] = Value(value);
++			seen_config_options[key] = true;
++			continue;
+ 		}
++		SQLRETURN ret = FindKeyValPair(key + "=" + value);
++		if (!SetSuccessWithInfo(ret))
++			return ret;
+ 	}
++	if (seen_config_options["cupolaconnection"] && (duplicate || unexpected))
++		return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect",
++		                           "CupolaConnection cannot be combined with a DSN, database, credentials, duplicate "
++		                           "keys, or other connection options.",
++		                           SQLStateType::ST_HY000, "");
+ 
+ 	// Extract the DSN from the config map as it is needed to read from the .odbc.ini file
+ 	dbc->dsn = GetOptionFromConfigMap("dsn");
+@@ -145,6 +187,13 @@ SQLRETURN Connect::SetConnection() {
+ #if defined ODBC_LINK_ODBCINST || defined WIN32
+ 	ReadFromIniFile();
+ #endif
++	std::string cupola = GetOptionFromConfigMap("cupolaconnection");
++	if (seen_config_options["cupolaconnection"] && cupola.empty())
++		return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect",
++		                           "CupolaConnection must name an existing connection.", SQLStateType::ST_HY000, "");
++	config_map.erase("cupolaconnection");
++	if (!cupola.empty())
++		config.SetOptionByName("allow_unsigned_extensions", Value(false));
+ 	std::string database = GetOptionFromConfigMap("database", IN_MEMORY_PATH);
+ 	dbc->SetDatabaseName(database);
+ 
+@@ -195,6 +244,9 @@ SQLRETURN Connect::SetConnection() {
+ 		return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect", error.Message(), SQLStateType::ST_IM003, "");
+ 	}
+ 
++	// Driver-manager pooling can reuse a DBC handle after SQLDisconnect.
++	// Cupola must resolve current settings into a fresh, isolated session.
++	if (!cupola.empty()) dbc->conn.reset();
+ 	if (!dbc->conn) {
+ 		dbc->conn = make_uniq<Connection>(*dbc->env->db);
+ 		dbc->conn->SetAutoCommit(dbc->autocommit);
+@@ -207,6 +256,14 @@ SQLRETURN Connect::SetConnection() {
+ 		}
+ 	}
+ 
++	if (!cupola.empty() && SQL_SUCCEEDED(ret)) {
++		try {
++			AttachCupolaConnection(*dbc->conn, cupola);
++		} catch (std::exception &error) {
++			dbc->conn.reset();
++			return SetDiagnosticRecord(dbc, SQL_ERROR, "SQLDriverConnect", error.what(), SQLStateType::ST_HY000, "");
++		}
++	}
+ 	return ret;
+ }
+ 
+@@ -219,6 +276,7 @@ Connect::Connect(OdbcHandleDbc *dbc_p, string input_str_p) : dbc(dbc_p), input_s
+ 	}
+ 
+ 	// Register ODBC-local options
++	seen_config_options["cupolaconnection"] = false;
+ 	seen_config_options["database"] = false;
+ 	seen_config_options["dsn"] = false;
+ 	seen_config_options[SessionInit::SQL_FILE_OPTION] = false;
+diff --git a/test/tests/test_connect.cpp b/test/tests/test_connect.cpp
+index 2443f51e..6294a990 100644
+--- a/test/tests/test_connect.cpp
++++ b/test/tests/test_connect.cpp
+@@ -1,11 +1,10 @@
+ #include "connect_helpers.h"
+ 
+ #include <iostream>
++#include <odbcinst.h>
+ #include <thread>
+ #include <vector>
+ 
+-#include <odbcinst.h>
+-
+ using namespace odbc_test;
+ 
+ // Connect to database using SQLDriverConnect without a DSN
+@@ -230,7 +229,8 @@ TEST_CASE("Test user_agent - in-memory database", "[odbc][useragent]") {
+ 	// Execute a simple query
+ 	EXECUTE_AND_CHECK(
+ 	    "SQLExecDirect (get user_agent)", hstmt, SQLExecDirect, hstmt,
+-	    ConvertToSQLCHAR("SELECT regexp_matches(user_agent, '^haybarn/.*(.*) odbc') FROM pragma_user_agent()"), SQL_NTS);
++	    ConvertToSQLCHAR("SELECT regexp_matches(user_agent, '^haybarn/.*(.*) odbc') FROM pragma_user_agent()"),
++	    SQL_NTS);
+ 
+ 	EXECUTE_AND_CHECK("SQLFetch (get user_agent)", hstmt, SQLFetch, hstmt);
+ 	DATA_CHECK(hstmt, 1, "true");
+@@ -256,7 +256,8 @@ TEST_CASE("Test user_agent - named database", "[odbc][useragent]") {
+ 	// Execute a simple query
+ 	EXECUTE_AND_CHECK(
+ 	    "SQLExecDirect (get user_agent)", hstmt, SQLExecDirect, hstmt,
+-	    ConvertToSQLCHAR("SELECT regexp_matches(user_agent, '^haybarn/.*(.*) odbc') FROM pragma_user_agent()"), SQL_NTS);
++	    ConvertToSQLCHAR("SELECT regexp_matches(user_agent, '^haybarn/.*(.*) odbc') FROM pragma_user_agent()"),
++	    SQL_NTS);
+ 
+ 	EXECUTE_AND_CHECK("SQLFetch (get user_agent)", hstmt, SQLFetch, hstmt);
+ 	DATA_CHECK(hstmt, 1, "true");
+@@ -396,3 +397,38 @@ TEST_CASE("Test connection string without null terminator", "[odbc]") {
+ 
+ 	DISCONNECT_FROM_DATABASE(env, dbc);
+ }
++
++TEST_CASE("Cupola rejects conflicting connection parameters", "[odbc][cupola]") {
++	SQLHANDLE env = SQL_NULL_HANDLE, dbc = SQL_NULL_HANDLE;
++	REQUIRE(SQLAllocHandle(SQL_HANDLE_ENV, nullptr, &env) == SQL_SUCCESS);
++	REQUIRE(SQLSetEnvAttr(env, SQL_ATTR_ODBC_VERSION, ConvertToSQLPOINTER(SQL_OV_ODBC3), 0) == SQL_SUCCESS);
++	REQUIRE(SQLAllocHandle(SQL_HANDLE_DBC, env, &dbc) == SQL_SUCCESS);
++	for (const auto &extra : {"DSN=anything;", "Database=:memory:;", "CupolaConnection=other;", "PWD=secret-fixture;",
++	                          "enable_logging=true;"}) {
++		std::string input = std::string("CupolaConnection={named};") + extra;
++		REQUIRE(SQLDriverConnect(dbc, nullptr, ConvertToSQLCHAR(input), SQL_NTS, nullptr, 0, nullptr,
++		                         SQL_DRIVER_NOPROMPT) == SQL_ERROR);
++		SQLCHAR state[6], message[1024];
++		SQLINTEGER native;
++		SQLSMALLINT length;
++		REQUIRE(SQLGetDiagRec(SQL_HANDLE_DBC, dbc, 1, state, &native, message, sizeof(message), &length) ==
++		        SQL_SUCCESS);
++		REQUIRE(std::string((char *)message).find("secret-fixture") == std::string::npos);
++	}
++	SQLFreeHandle(SQL_HANDLE_DBC, dbc);
++	SQLFreeHandle(SQL_HANDLE_ENV, env);
++}
++
++TEST_CASE("ODBC braced values preserve semicolons and closing braces", "[odbc][cupola]") {
++	SQLHANDLE env = SQL_NULL_HANDLE, dbc = SQL_NULL_HANDLE;
++	REQUIRE(SQLAllocHandle(SQL_HANDLE_ENV, nullptr, &env) == SQL_SUCCESS);
++	REQUIRE(SQLSetEnvAttr(env, SQL_ATTR_ODBC_VERSION, ConvertToSQLPOINTER(SQL_OV_ODBC3), 0) == SQL_SUCCESS);
++	REQUIRE(SQLAllocHandle(SQL_HANDLE_DBC, env, &dbc) == SQL_SUCCESS);
++	std::string input = "Database=:memory:;custom_user_agent={cupola;test}}};";
++	REQUIRE(SQL_SUCCEEDED(
++	    SQLDriverConnect(dbc, nullptr, ConvertToSQLCHAR(input), SQL_NTS, nullptr, 0, nullptr, SQL_DRIVER_NOPROMPT)));
++	CheckConfig(dbc, "custom_user_agent", "cupola;test}");
++	SQLDisconnect(dbc);
++	SQLFreeHandle(SQL_HANDLE_DBC, dbc);
++	SQLFreeHandle(SQL_HANDLE_ENV, env);
++}
+diff --git a/include/cupola_connection.hpp b/include/cupola_connection.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/cupola_connection.hpp
+@@ -0,0 +1,7 @@
++#pragma once
++#include "duckdb.hpp"
++namespace duckdb {
++// Resolve the current user's Cupola registry and attach through the VGI extension.
++// Throws fixed, credential-free errors; never returns ATTACH SQL to ODBC diagnostics.
++void AttachCupolaConnection(Connection &connection, const std::string &name);
++} // namespace duckdb
+diff --git a/src/odbc_driver/connect/cupola_connection.cpp b/src/odbc_driver/connect/cupola_connection.cpp
+new file mode 100644
+--- /dev/null
++++ b/src/odbc_driver/connect/cupola_connection.cpp
+@@ -0,0 +1,345 @@
++#include "cupola_connection.hpp"
++
++#include "duckdb/common/string_util.hpp"
++#include "yyjson.hpp"
++
++#include <fstream>
++#include <regex>
++#include <set>
++#include <sstream>
++#include <vector>
++#ifdef _WIN32
++#include <shlobj.h>
++#include <wincrypt.h>
++#include <windows.h>
++#include <winhttp.h>
++#endif
++
++namespace duckdb {
++#ifdef _WIN32
++using namespace duckdb_yyjson;
++namespace {
++struct Json {
++	yyjson_doc *doc;
++	explicit Json(const std::string &text)
++	    : doc(yyjson_read(text.data() + (text.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0),
++	                      text.size() - (text.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0), 0)) {
++		if (!doc)
++			throw std::runtime_error("Cupola store contains invalid JSON.");
++	}
++	~Json() {
++		yyjson_doc_free(doc);
++	}
++	yyjson_val *Root() {
++		return yyjson_doc_get_root(doc);
++	}
++};
++std::wstring Wide(const std::string &s) {
++	int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), (int)s.size(), nullptr, 0);
++	if (s.empty())
++		return L"";
++	if (!n && !s.empty())
++		throw std::runtime_error("Invalid Cupola text encoding.");
++	std::wstring out(n, 0);
++	MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), (int)s.size(), &out[0], n);
++	return out;
++}
++std::string Utf8(const std::wstring &s) {
++	if (s.empty())
++		return "";
++	int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0, nullptr, nullptr);
++	std::string out(n, 0);
++	WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), &out[0], n, nullptr, nullptr);
++	return out;
++}
++std::wstring Env(const wchar_t *key) {
++	DWORD n = GetEnvironmentVariableW(key, nullptr, 0);
++	if (!n)
++		return L"";
++	std::wstring v(n, 0);
++	GetEnvironmentVariableW(key, &v[0], n);
++	v.resize(n - 1);
++	return v;
++}
++std::wstring Root() {
++	auto override_path = Env(L"VGI_EXCEL_CONFIG_HOME");
++	if (!override_path.empty())
++		return override_path;
++	PWSTR path = nullptr;
++	if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &path)))
++		throw std::runtime_error("Cupola user store is unavailable.");
++	std::wstring root(path);
++	CoTaskMemFree(path);
++	return root + L"\\QueryFarm\\VgiExcel";
++}
++std::string Read(const std::wstring &path, size_t limit) {
++	std::ifstream in(path.c_str(), std::ios::binary);
++	if (!in)
++		throw std::runtime_error(
++		    "Cupola connection or OAuth session was not found. Open Cupola Connections and sign in if required.");
++	in.seekg(0, std::ios::end);
++	auto size = in.tellg();
++	if (size < 0 || (uint64_t)size > limit)
++		throw std::runtime_error("Cupola store exceeds its size limit.");
++	in.seekg(0);
++	std::string data((size_t)size, 0);
++	if (!data.empty() && !in.read(&data[0], data.size()))
++		throw std::runtime_error("Cupola store could not be read.");
++	return data;
++}
++std::string Field(yyjson_val *o, const char *key) {
++	auto v = yyjson_obj_get(o, key);
++	if (!yyjson_is_str(v))
++		throw std::runtime_error("Cupola connection fields are invalid.");
++	return std::string(yyjson_get_str(v), yyjson_get_len(v));
++}
++std::string Optional(yyjson_val *o, const char *key) {
++	auto v = yyjson_obj_get(o, key);
++	return yyjson_is_str(v) ? std::string(yyjson_get_str(v), yyjson_get_len(v)) : "";
++}
++std::string Quote(const std::string &s, char mark = '\'') {
++	std::string v(1, mark);
++	for (char c : s) {
++		if (!c)
++			throw std::runtime_error("Cupola fields must not contain NUL.");
++		v += c;
++		if (c == mark)
++			v += c;
++	}
++	return v + mark;
++}
++std::string Dump(yyjson_val *v) {
++	size_t len;
++	char *p = yyjson_val_write(v, 0, &len);
++	if (!p)
++		throw std::runtime_error("Invalid Cupola option.");
++	std::string s(p, len);
++	free(p);
++	return s;
++}
++std::string Hash(const std::string &s) {
++	HCRYPTPROV provider = 0;
++	HCRYPTHASH hash = 0;
++	BYTE value[32];
++	DWORD n = sizeof(value);
++	if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
++		throw std::runtime_error("Cupola hash provider unavailable.");
++	bool ok = CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash) &&
++	          CryptHashData(hash, (const BYTE *)s.data(), (DWORD)s.size(), 0) &&
++	          CryptGetHashParam(hash, HP_HASHVAL, value, &n, 0);
++	if (hash)
++		CryptDestroyHash(hash);
++	CryptReleaseContext(provider, 0);
++	if (!ok)
++		throw std::runtime_error("Cupola hash failed.");
++	const char *hex = "0123456789ABCDEF";
++	std::string out;
++	for (auto b : value) {
++		out += hex[b >> 4];
++		out += hex[b & 15];
++	}
++	return out;
++}
++// Match OAuthClient.Key: normalized HTTPS origin/path, excluding query/fragment and trailing slash.
++std::string OAuthKey(const std::string &location) {
++	auto url = Wide(location);
++	URL_COMPONENTS parts = {};
++	parts.dwStructSize = sizeof(parts);
++	parts.dwHostNameLength = parts.dwUserNameLength = parts.dwPasswordLength = parts.dwUrlPathLength =
++	    parts.dwExtraInfoLength = (DWORD)-1;
++	if (!WinHttpCrackUrl(url.c_str(), (DWORD)url.size(), 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS ||
++	    !parts.dwHostNameLength || parts.dwUserNameLength || parts.dwPasswordLength)
++		throw std::runtime_error("Cupola requires an HTTPS endpoint without embedded credentials.");
++	auto host = Utf8(std::wstring(parts.lpszHostName, parts.dwHostNameLength));
++	host = StringUtil::Lower(host);
++	std::string key = "https://" + host;
++	if (parts.nPort != 443)
++		key += ":" + std::to_string(parts.nPort);
++	if (parts.dwUrlPathLength)
++		key += Utf8(std::wstring(parts.lpszUrlPath, parts.dwUrlPathLength));
++	while (!key.empty() && key.back() == '/')
++		key.pop_back();
++	return key;
++}
++struct Secret {
++	std::string value;
++	~Secret() {
++		if (!value.empty())
++			SecureZeroMemory(&value[0], value.size());
++	}
++};
++std::string Credential(const std::wstring &root, const std::string &key) {
++	auto encrypted =
++	    Read(root + L"\\oauth-sessions\\" + Wide(Hash("QueryFarm/VgiExcel/OAuth/" + Hash(key))) + L".bin", 1024 * 1024);
++	std::string entropy = "QueryFarm.CupolaForExcel.OAuth.v1";
++	DATA_BLOB input = {(DWORD)encrypted.size(), (BYTE *)&encrypted[0]},
++	          extra = {(DWORD)entropy.size(), (BYTE *)&entropy[0]}, output = {};
++	if (!CryptUnprotectData(&input, nullptr, &extra, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output))
++		throw std::runtime_error(
++		    "Cupola OAuth session cannot be decrypted for this Windows user. Sign in again in Cupola.");
++	Secret clear;
++	clear.value.assign((char *)output.pbData, output.cbData);
++	SecureZeroMemory(output.pbData, output.cbData);
++	LocalFree(output.pbData);
++	Json tokens(clear.value);
++	Secret token;
++	token.value = Optional(tokens.Root(), "refresh_token");
++	if (!token.value.empty())
++		return "oauth_refresh_token " + Quote(token.value);
++	// Persistent access-only sessions are not refreshed by this driver; require a valid expiration.
++	auto expiry = Optional(tokens.Root(), "ExpiresAtUtc");
++	SYSTEMTIME now;
++	GetSystemTime(&now);
++	char stamp[32];
++	snprintf(stamp, sizeof(stamp), "%04u-%02u-%02uT%02u:%02u:%02u", now.wYear, now.wMonth, now.wDay, now.wHour,
++	         now.wMinute, now.wSecond);
++	if (expiry.size() < 19 || expiry.substr(0, 19) <= stamp)
++		throw std::runtime_error("Cupola OAuth session has expired. Sign in again in Cupola.");
++	bool id = yyjson_is_true(yyjson_obj_get(tokens.Root(), "UseIdToken"));
++	token.value = Optional(tokens.Root(), id ? "id_token" : "access_token");
++	if (token.value.empty())
++		throw std::runtime_error("Cupola OAuth session has no usable credential. Sign in again in Cupola.");
++	return "bearer_token " + Quote(token.value);
++}
++void Run(Connection &c, const std::string &sql, const char *error) {
++	try {
++		auto result = c.Query(sql);
++		if (result && !result->HasError())
++			return;
++	} catch (...) {
++	}
++	throw std::runtime_error(error);
++}
++} // namespace
++#endif
++void AttachCupolaConnection(Connection &c, const std::string &requested) {
++#ifndef _WIN32
++	throw std::runtime_error("Cupola connections require the Windows per-user connection store.");
++#else
++	auto root = Root();
++	Json registry(Read(root + L"\\desktop-connections.json", 8 * 1024 * 1024));
++	if (!yyjson_is_arr(registry.Root()) || requested.empty())
++		throw std::runtime_error("A valid Cupola connection name is required.");
++	yyjson_val *selected = nullptr, *row;
++	size_t i, max;
++	auto wanted = Wide(requested);
++	yyjson_arr_foreach(registry.Root(), i, max, row) {
++		auto candidate = Wide(Field(row, "Name"));
++		if (CompareStringOrdinal(candidate.c_str(), (int)candidate.size(), wanted.c_str(), (int)wanted.size(), TRUE) ==
++		    CSTR_EQUAL) {
++			if (selected)
++				throw std::runtime_error("Cupola connection name is ambiguous.");
++			selected = row;
++		}
++	}
++	if (!selected)
++		throw std::runtime_error(
++		    "The named Cupola connection does not exist. Select an existing connection in Cupola.");
++	auto profile_name = Field(selected, "Name");
++	auto members = yyjson_obj_get(selected, "Members");
++	if (members && !yyjson_is_null(members) && !yyjson_is_arr(members))
++		throw std::runtime_error("Cupola profile members must be an array.");
++	bool profile = yyjson_is_arr(members) && yyjson_arr_size(members) > 0;
++	std::vector<yyjson_val *> attachments;
++	if (profile) {
++		if (yyjson_arr_size(members) > 16 || !Field(selected, "Location").empty() ||
++		    Field(selected, "Authentication") != "anonymous")
++			throw std::runtime_error("Cupola profile settings are invalid.");
++		auto profile_options = yyjson_obj_get(selected, "AttachOptions");
++		if (profile_options && !yyjson_is_null(profile_options) &&
++		    (!yyjson_is_obj(profile_options) || yyjson_obj_size(profile_options) != 0))
++			throw std::runtime_error("Cupola profiles use their members' options.");
++		yyjson_val *member;
++		size_t mi, mn;
++		yyjson_arr_foreach(members, mi, mn, member) {
++			if (!yyjson_is_str(member) || yyjson_get_len(member) == 0)
++				throw std::runtime_error("Cupola profile member name is missing.");
++			auto requested_member = Wide(std::string(yyjson_get_str(member), yyjson_get_len(member)));
++			yyjson_val *found = nullptr;
++			yyjson_arr_foreach(registry.Root(), i, max, row) {
++				auto candidate = Wide(Field(row, "Name"));
++				if (CompareStringOrdinal(candidate.c_str(), (int)candidate.size(), requested_member.c_str(),
++				                         (int)requested_member.size(), TRUE) == CSTR_EQUAL) {
++					if (found) throw std::runtime_error("Cupola profile member is ambiguous.");
++					found = row;
++				}
++			}
++			if (!found) throw std::runtime_error("A Cupola profile member no longer exists.");
++			auto nested = yyjson_obj_get(found, "Members");
++			if (nested && !yyjson_is_null(nested) && (!yyjson_is_arr(nested) || yyjson_arr_size(nested) > 0))
++				throw std::runtime_error("Cupola profiles cannot contain other profiles.");
++			attachments.push_back(found);
++		}
++	} else attachments.push_back(selected);
++	std::set<std::string> aliases;
++	for (auto item : attachments) {
++		auto alias = Field(item, "Catalog");
++		if (alias.empty() || !aliases.insert(StringUtil::Lower(alias)).second)
++			throw std::runtime_error("Cupola profile catalog aliases must be nonempty and distinct.");
++	}
++	std::string identity;
++	for (auto selected : attachments) {
++	auto name = Field(selected, "Name"), catalog = Field(selected, "Catalog"), location = Field(selected, "Location"),
++	     auth = Field(selected, "Authentication");
++	if (catalog.empty())
++		throw std::runtime_error("Cupola catalog alias is missing.");
++	auto oauth_key = OAuthKey(location);
++	if (auth != "anonymous" && auth != "oauth")
++		throw std::runtime_error("Cupola authentication mode is invalid.");
++	auto options = yyjson_obj_get(selected, "AttachOptions");
++	if (options && !yyjson_is_null(options) && !yyjson_is_obj(options))
++		throw std::runtime_error("Cupola ATTACH options must be an object.");
++	Secret attach;
++	attach.value =
++	    "ATTACH " + Quote(catalog) + " AS " + Quote(catalog, '"') + " (TYPE vgi, LOCATION " + Quote(location);
++	if (auth == "oauth") {
++		Secret credential;
++		credential.value = Credential(root, oauth_key);
++		attach.value += ", " + credential.value;
++	}
++	static const std::set<std::string> forbidden = {
++	    "type",          "location", "access_token",        "api_key",  "authorization", "bearer_token",
++	    "client_secret", "id_token", "oauth_refresh_token", "password", "refresh_token", "secret"};
++	if (yyjson_is_obj(options)) {
++		yyjson_val *k, *v;
++		yyjson_obj_foreach(options, i, max, k, v) {
++			std::string key = yyjson_get_str(k);
++			if (!std::regex_match(key, std::regex("[A-Za-z_][A-Za-z0-9_]*")) || forbidden.count(StringUtil::Lower(key)))
++				throw std::runtime_error("Cupola ATTACH options contain an invalid or reserved name.");
++			if (!yyjson_is_str(v) && !yyjson_is_num(v) && !yyjson_is_bool(v) && !yyjson_is_null(v))
++				throw std::runtime_error("Cupola ATTACH options must be scalar values.");
++			attach.value += ", " + key + " " +
++			                (yyjson_is_str(v) ? Quote(std::string(yyjson_get_str(v), yyjson_get_len(v))) : Dump(v));
++		}
++	}
++	attach.value += ")";
++	// Load the signed extension shipped alongside this driver, with the normal Haybarn repository as fallback.
++	HMODULE module = nullptr;
++	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++	                   (LPCWSTR)&AttachCupolaConnection, &module);
++	wchar_t path[32768];
++	DWORD n = GetModuleFileNameW(module, path, 32768);
++	if (!n || n >= 32768)
++		throw std::runtime_error("Cupola driver directory is unavailable.");
++	std::wstring extension(path, n);
++	extension = extension.substr(0, extension.find_last_of(L"\\/")) + L"\\vgi.duckdb_extension";
++	if (GetFileAttributesW(extension.c_str()) != INVALID_FILE_ATTRIBUTES)
++		Run(c, "LOAD " + Quote(Utf8(extension)), "Cupola VGI extension could not be loaded.");
++	else {
++		Run(c, "INSTALL vgi FROM community", "Cupola VGI extension could not be installed.");
++		Run(c, "LOAD vgi", "Cupola VGI extension could not be loaded.");
++	}
++	Run(c, attach.value, "Cupola could not attach the HTTPS catalog. Check the connection and sign-in in Cupola.");
++	// One identity row per attachment; version 1 remains compatible for single catalogs.
++	auto option_json = yyjson_is_obj(options) ? Dump(options) : "{}";
++	if (!identity.empty()) identity += " UNION ALL ";
++	identity += "SELECT " + std::string(profile ? "2" : "1") + " AS contract_version, " + Quote(profile_name) +
++	            " AS connection_name, " + Quote(name) + " AS member_name, " + Quote(catalog) + " AS catalog_alias, " +
++	            Quote(location) + " AS location, " + Quote(auth) + " AS authentication, " + Quote(option_json) + " AS attach_options";
++	}
++	Run(c, "USE " + Quote(Field(attachments.front(), "Catalog"), '"'), "Cupola could not select its default catalog.");
++	Run(c, "CREATE TEMP MACRO cupola_connection_info() AS TABLE " + identity,
++	    "Cupola connection identity could not be initialized.");
++#endif
++}
++} // namespace duckdb
+diff --git a/vendor.py b/vendor.py
+--- a/vendor.py
++++ b/vendor.py
+@@ -64,10 +64,10 @@
+ def replace_entries(cmake, replacement_map):
+     cmake.replace()
+ 
+-cmake = cmake.replace('${SOURCES}', '\n  '.join(source_list))
+-cmake = cmake.replace('${JEMALLOC_SOURCES}', '\n  '.join(jemalloc_source_list))
+-cmake = cmake.replace('${INCLUDES}', '\n  '.join(include_list))
+-cmake = cmake.replace('${JEMALLOC_INCLUDES}', '\n  '.join(jemalloc_include_list))
++cmake = cmake.replace('${SOURCES}', '\n  '.join(sanitize_path(x) for x in source_list))
++cmake = cmake.replace('${JEMALLOC_SOURCES}', '\n  '.join(sanitize_path(x) for x in jemalloc_source_list))
++cmake = cmake.replace('${INCLUDES}', '\n  '.join(sanitize_path(x) for x in include_list))
++cmake = cmake.replace('${JEMALLOC_INCLUDES}', '\n  '.join(sanitize_path(x) for x in jemalloc_include_list))
+ cmake = cmake.replace('${DEFINES}', '\n  '.join(['-D'+x for x in defines]))
+ 
+ with open('CMakeLists.txt', 'w+') as f:

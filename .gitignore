@@ -16,3 +16,5 @@ artifacts/
 *.pfx
 *.snk
 dev-certs/
+__pycache__/
+*.pyc

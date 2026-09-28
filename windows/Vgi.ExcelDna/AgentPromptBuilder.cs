@@ -12,7 +12,8 @@ internal static class AgentPromptBuilder
 
     public static string Build(VgiConnection connection, QueryResult? inventory = null, string? inventoryError = null)
     {
-        var objects = inventory is null ? Array.Empty<CatalogObject>() : Objects(inventory, connection.Catalog).ToArray();
+        var catalogs = ConnectionStore.ResolveAttachments(connection).Select(member => member.Catalog).ToArray();
+        var objects = inventory is null ? Array.Empty<CatalogObject>() : Objects(inventory, catalogs[0]).ToArray();
         var counts = string.Join(", ", objects.GroupBy(item => item.Kind).OrderBy(group => group.Key).Select(group => $"{group.Count()} {group.Key}"));
         var lines = new List<string>();
         var used = 0;
@@ -37,7 +38,7 @@ internal static class AgentPromptBuilder
 ## Active VGI connection
 
 - Connection name: {Clean(connection.Name, 160)}
-- Attached catalog: {Clean(connection.Catalog, 160)}
+- Attached catalog: {string.Join(", ", catalogs.Select(value => Clean(value, 160)))}
 - Transport: HTTPS only
 - Authentication: {Clean(connection.Authentication, 80)}
 
@@ -48,7 +49,7 @@ All database tools in this conversation operate on that active connection. The a
 - Inspect the live catalog instead of guessing names, schemas, columns, or signatures.
 - Use list_tables or describe_table before querying unfamiliar tables and views.
 - Before calling an unfamiliar VGI function, use list_functions.
-- Use fully qualified catalog.schema.object names, especially `{Clean(connection.Catalog, 160)}` for VGI objects.
+- Use fully qualified catalog.schema.object names, especially `{string.Join(", ", catalogs.Select(value => Clean(value, 160)))}` for VGI objects.
 - Required function parameters are positional and come first. Parameters marked named must use name := value, never positional syntax.
 - Respect documented choices, ranges, patterns, defaults, and exact DuckDB types. Cast numeric literals when required.
 - Run focused, read-only SQL. After an error, inspect metadata and change the approach; never repeat the same failing query.

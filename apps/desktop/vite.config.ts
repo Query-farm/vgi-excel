@@ -11,6 +11,7 @@ export default defineConfig({
   base: "./",
   plugins: [
     react(),
+    { name: "cupola-build-info", generateBundle() { this.emitFile({ type: "asset", fileName: "build-info.json", source: JSON.stringify({ version: product.version, build: product.cupolaBuild, host: "desktop" }) }); } },
     ...(uploadSourceMaps ? sentryVitePlugin({
       authToken: process.env.SENTRY_AUTH_TOKEN,
       org: process.env.SENTRY_ORG,
@@ -23,6 +24,6 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(product.version), __BUILD_ID__: JSON.stringify(product.cupolaBuild) },
   build: {
     outDir: "dist", emptyOutDir: true, sourcemap: uploadSourceMaps ? "hidden" : false,
-    rollupOptions: { output: { entryFileNames: "assets/workbench.js", chunkFileNames: "assets/[name].js", assetFileNames: "assets/workbench[extname]" } },
+    rollupOptions: { input: { workbench: "index.html", results: "results.html" }, output: { entryFileNames: "assets/[name].js", chunkFileNames: "assets/[name].js", assetFileNames: "assets/workbench[extname]" } },
   },
 });

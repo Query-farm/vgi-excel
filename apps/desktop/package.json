@@ -1,6 +1,6 @@
 {
   "name": "@query-farm/vgi-excel-desktop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,18 +9,20 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@query-farm/vgi-excel-core": "0.4.0",
-    "@sentry/react": "^10.70.0",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@vitejs/plugin-react": "latest",
-    "lucide-react": "^1.33.0",
-    "react": "latest",
-    "react-dom": "latest",
+    "@query-farm/vgi-excel-core": "0.5.0",
+    "@sentry/react": "^10.75.0",
+    "lucide-react": "^1.47.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "typescript": "latest",
-    "vite": "latest",
-    "vitest": "latest"
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.11"
   }
 }

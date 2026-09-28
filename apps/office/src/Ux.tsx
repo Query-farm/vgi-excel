@@ -1,4 +1,5 @@
-import { useRef, type ReactNode } from "react";
+import { ChevronUp } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 export type NoticeValue = { kind: "progress" | "success" | "error" | "info"; message: string } | null;
 
@@ -13,7 +14,7 @@ export function Onboarding({ onConnect }: { onConnect(): void }): React.JSX.Elem
 
 export function WorkspaceTabs<T extends string>({ value, tabs, onChange }: { value: T; tabs: Array<{ id: T; label: string; icon?: ReactNode }>; onChange(value: T): void }): React.JSX.Element {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
-  return <nav className="workspace-tabs" role="tablist" aria-label="Cupola workspaces">{tabs.map((tab, index) => <button key={tab.id} ref={(node) => { refs.current[index] = node; }} role="tab" id={`tab-${tab.id}`} aria-label={tab.label} aria-selected={value === tab.id} aria-controls={`panel-${tab.id}`} tabIndex={value === tab.id ? 0 : -1} className={value === tab.id ? "active" : ""} onClick={() => onChange(tab.id)} onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return; event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length; onChange(tabs[next].id); refs.current[next]?.focus(); }}>{tab.icon}<span>{tab.label}</span></button>)}</nav>;
+  return <nav className="workspace-tabs" role="tablist" aria-label="Cupola workspaces">{tabs.map((tab, index) => <button key={tab.id} ref={(node) => { refs.current[index] = node; }} role="tab" id={`tab-${tab.id}`} aria-label={tab.label} aria-selected={value === tab.id} aria-controls={`panel-${tab.id}`} tabIndex={value === tab.id || (!tabs.some(item => item.id === value) && index === 0) ? 0 : -1} className={value === tab.id ? "active" : ""} onClick={() => onChange(tab.id)} onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return; event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length; onChange(tabs[next].id); refs.current[next]?.focus(); }}>{tab.icon}<span>{tab.label}</span></button>)}</nav>;
 }
 
 export function TabPanel({ id, active, children, busy }: { id: string; active: boolean; children: React.ReactNode; busy?: boolean }): React.JSX.Element {
@@ -26,4 +27,22 @@ export function formatSql(sql: string): string {
 
 export function resultTsv(result: { columns: Array<{ name: string }>; rows: unknown[][] }): string {
   return [result.columns.map((column) => column.name), ...result.rows].map((row) => row.map((cell) => cell == null ? "" : String(cell).replaceAll("\t", " ").replaceAll("\n", " ")).join("\t")).join("\n");
+}
+
+export function ResultsMore({ children }: { children: ReactNode }): React.JSX.Element {
+  const details = useRef<HTMLDetailsElement>(null);
+  function close(restoreFocus = false): void {
+    if (!details.current) return;
+    details.current.open = false;
+    if (restoreFocus) details.current.querySelector("summary")?.focus();
+  }
+  useEffect(() => {
+    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !details.current?.contains(event.target)) close(); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, []);
+  return <details className="results-more" ref={details} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) close(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(true); } }}>
+    <summary aria-label="More result actions">More<ChevronUp aria-hidden="true"/></summary>
+    <div className="results-more-popover" onClick={(event) => { if ((event.target as Element).closest("button")) close(true); }}>{children}</div>
+  </details>;
 }

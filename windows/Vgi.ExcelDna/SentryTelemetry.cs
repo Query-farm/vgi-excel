@@ -31,40 +31,43 @@ internal static class SentryTelemetry
         if (_sdk is not null || !IsEnabledByConfiguration()) return;
         try
         {
-            var dsn = Environment.GetEnvironmentVariable("VGI_EXCEL_SENTRY_DSN") ?? DefaultDsn;
-            _sdk = SentrySdk.Init(options =>
-            {
-                options.Dsn = dsn;
-                options.Release = $"cupola-excel@{ProductInfo.Version}+{ProductInfo.Build}";
-                options.Distribution = "xll";
-                options.Environment = Environment.GetEnvironmentVariable("VGI_EXCEL_SENTRY_ENVIRONMENT") ?? "production";
-                options.SendDefaultPii = false;
-                options.IsGlobalModeEnabled = true;
-                options.AttachStacktrace = true;
-                options.TracesSampleRate = 0;
-                options.MaxBreadcrumbs = 0;
-                options.AutoSessionTracking = false;
-                options.EnableLogs = false;
-                options.EnableMetrics = false;
-                options.DisableFileWrite = true;
-                options.ShutdownTimeout = TimeSpan.FromSeconds(2);
-                options.DisableAppDomainUnhandledExceptionCapture();
-                options.DisableUnobservedTaskExceptionCapture();
-                options.DisableAppDomainProcessExitFlush();
-                options.DisableNetFxInstallationsIntegration();
-                options.DefaultTags["product"] = "cupola-excel";
-                options.DefaultTags["host"] = "xll";
-                options.DefaultTags["version"] = ProductInfo.Version;
-                options.DefaultTags["build"] = ProductInfo.Build;
-                options.DefaultTags["transport"] = "https";
-                options.SetBeforeBreadcrumb(_ => null!);
-                options.SetBeforeSend(ScrubEvent);
-            });
+            _sdk = SentrySdk.Init(ConfigureOptions);
         }
         catch
         {
             _sdk = null;
         }
+    }
+
+    internal static void ConfigureOptions(SentryOptions options)
+    {
+        options.Dsn = Environment.GetEnvironmentVariable("VGI_EXCEL_SENTRY_DSN") ?? DefaultDsn;
+        options.Release = $"cupola-excel@{ProductInfo.Version}+{ProductInfo.Build}";
+        options.Distribution = "xll";
+        options.Environment = Environment.GetEnvironmentVariable("VGI_EXCEL_SENTRY_ENVIRONMENT") ?? "production";
+        options.SendDefaultPii = false;
+        options.IsGlobalModeEnabled = true;
+        options.AttachStacktrace = true;
+        options.TracesSampleRate = 0;
+        options.MaxBreadcrumbs = 0;
+        options.AutoSessionTracking = false;
+        options.EnableLogs = false;
+        options.SetBeforeSendMetric(_ => null);
+        options.SetBeforeSendLog(_ => null);
+        options.SendClientReports = false;
+        options.DisableFileWrite = true;
+        options.ShutdownTimeout = TimeSpan.FromSeconds(2);
+        options.DisableAppDomainUnhandledExceptionCapture();
+        options.DisableUnobservedTaskExceptionCapture();
+        options.DisableAppDomainProcessExitFlush();
+        options.DisableNetFxInstallationsIntegration();
+        options.DefaultTags["product"] = "cupola-excel";
+        options.DefaultTags["host"] = "xll";
+        options.DefaultTags["version"] = ProductInfo.Version;
+        options.DefaultTags["build"] = ProductInfo.Build;
+        options.DefaultTags["transport"] = "https";
+        options.SetBeforeBreadcrumb(_ => null!);
+        options.SetBeforeSend(ScrubEvent);
     }
 
     internal static void Capture(Exception error, string operation)

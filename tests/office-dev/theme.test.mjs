@@ -1,0 +1,52 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "vite";
+import { webkit, expect } from "@playwright/test";
+process.env.VITEST = "1";
+test("Office theme overrides macOS and updates without losing state", async () => {
+ const server=await createServer({root:"apps/office",configFile:"apps/office/vite.config.ts",server:{host:"127.0.0.1",port:0,open:false}});
+ const browser=await webkit.launch();
+ try {
+  await server.listen();
+  const context=await browser.newContext({viewport:{width:300,height:600},colorScheme:"dark"});
+  const page=await context.newPage();
+  await context.route("https://appsforoffice.microsoft.com/**",r=>r.fulfill({contentType:"text/javascript",body:`window.Office={onReady:cb=>cb(),context:{officeTheme:{bodyBackgroundColor:'#ffffff',bodyForegroundColor:'#242424'}}};`}));
+  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/taskpane.html`);
+  await expect(page.getByRole("button",{name:"Add connection"})).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-office-theme","light");
+  await expect(page.locator("html")).toHaveCSS("background-color","rgb(255, 255, 255)");
+  await page.screenshot({path:"/tmp/cupola-office-light.png"});
+  await page.evaluate(async()=>{const {confirmAction}=await import('/src/confirmation.ts');window.confirmation=confirmAction('Insert 1 row at the current selection? This table won’t refresh automatically.','Insert into Excel','Insert table');});
+  await page.evaluate(()=>{Office.context.officeTheme={bodyBackgroundColor:'#292929',bodyForegroundColor:'#f5f5f5'};window.dispatchEvent(new Event('focus'));});
+  await expect(page.locator("html")).toHaveAttribute("data-office-theme","dark");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCSS("background-color","rgb(41, 41, 41)");
+  await page.screenshot({path:"/tmp/cupola-office-dark.png"});
+  await page.getByRole("button",{name:"Cancel",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.confirmation),false);
+  await expect(page.getByRole("link", {name:"Learn about VGI connections"})).toHaveCSS("background-color","rgb(41, 41, 41)");
+  await page.screenshot({path:"/tmp/cupola-office-dark-uncovered.png"});
+  const popupPromise=page.waitForEvent("popup");
+  await page.evaluate(async()=>{const {openResultsWindow}=await import('/src/results-window.ts');void openResultsWindow({title:'Theme test',result:{columns:[{name:'answer',type:'INTEGER'}],rows:[[42]],rowCount:1}});});
+  const popup=await popupPromise;
+  await expect(popup.locator("html")).toHaveAttribute("data-office-theme","dark");
+  await expect(popup.getByRole("table")).toContainText("42");
+  await popup.close();
+  await page.evaluate(()=>{delete Office.context.officeTheme;window.dispatchEvent(new Event('focus'));});
+  await expect(page.locator("html")).toHaveAttribute("data-office-theme","light");
+  await page.evaluate(() => {
+    localStorage.setItem("vgi.excel.connections.v1", JSON.stringify([{ name: "Weather", catalog: "open_meteo", location: "https://weather.example/vgi", authentication: "anonymous", attachOptions: {} }]));
+    localStorage.setItem("vgi.excel.default-connection.v1", "Weather");
+    sessionStorage.setItem("vgi.excel.oauth.https://weather.example", JSON.stringify({ access_token: "test-only" }));
+  });
+  await page.reload();
+  await page.getByLabel("SQL query").fill("SELECT 123 AS retained_draft");
+  await expect.poll(() => page.evaluate(() => JSON.stringify(localStorage))).toContain("retained_draft");
+  const fresh = await page.context().newPage();
+  await fresh.goto(`http://127.0.0.1:${server.httpServer.address().port}/taskpane.html`);
+  await expect(fresh.getByLabel("SQL query")).toHaveValue("SELECT 123 AS retained_draft");
+  assert.equal(await fresh.evaluate(() => sessionStorage.getItem("vgi.excel.oauth.https://weather.example")), null);
+  assert.equal(await fresh.evaluate(() => JSON.stringify(localStorage).includes("test-only")), false);
+  await fresh.close();
+ }finally{await browser.close();await server.close();}
+});

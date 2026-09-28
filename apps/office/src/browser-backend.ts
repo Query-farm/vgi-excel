@@ -1,8 +1,9 @@
 import * as duckdb from "@haybarn/haybarn-wasm";
 import { installVgiOAuthBridge } from "@haybarn/haybarn-wasm/vgi";
-import { tableFromArrays, type Table } from "apache-arrow";
+import { tableFromArrays, tableFromIPC, type Table } from "apache-arrow";
 import {
   assertHttpsConnection,
+  catalogNames,
   qualifiedFunctionName,
   quoteIdentifier,
   quoteLiteral,
@@ -17,8 +18,10 @@ import { getServiceToken } from "./config";
 import { sessionTokenKey } from "./config";
 import { isRecoverableAuthError } from "./auth-errors";
 import { signIn } from "./oauth";
+import { runConnectionTest } from "./connection-test";
 
 type AsyncConnection = Awaited<ReturnType<duckdb.AsyncDuckDB["connect"]>>;
+class ConnectionSignInRequired extends Error {}
 
 const DEFAULT_ARTIFACT_BASE = typeof document === "undefined"
   ? "/haybarn/"
@@ -44,24 +47,86 @@ export class BrowserBackend implements QueryBackend {
   private runtime: Promise<AsyncConnection> | null = null;
   private attached = false;
 
-  constructor(private readonly definition: ConnectionDefinition) {}
+  constructor(
+    private readonly definition: ConnectionDefinition,
+    private readonly runtimeFactory = () => BrowserBackend.ensureBooted(),
+    private readonly interactiveAuth = true,
+  ) {}
 
-  async query(sql: string, options: QueryOptions = {}): Promise<QueryResult> {
-    const connection = await this.connection();
-    const started = performance.now();
-    const cancel = () => void connection.cancelSent();
-    options.signal?.addEventListener("abort", cancel, { once: true });
-    try {
-      const table = await connection.query(sql);
+  static async discoverCatalogs(location: string, progress?: (status: string) => void): Promise<string[]> {
+    assertHttpsConnection({ name: "discovery", location });
+    const probe = () => runConnectionTest(async signal => {
+      const { db } = await bootHaybarn(signal);
+      const connection = await db.connect();
+      signal?.throwIfAborted();
+      await connection.query("LOAD json");
+      await connection.query("INSTALL vgi FROM community").catch(() => undefined);
+      await connection.query("LOAD vgi");
+      const token = getServiceToken(location);
+      await connection.query(`SET vgi_oauth_enabled=${token?.refresh_token ? "true" : "false"}`);
+      const options = ["oauth_cache := 'none'"];
+      if (token?.refresh_token) options.push(`oauth_refresh_token := ${quoteLiteral(token.refresh_token)}`);
+      else if (token?.access_token) options.push(`bearer_token := ${quoteLiteral(token.access_token)}`);
+      const result = arrowResult(await connection.query(`SELECT catalog FROM vgi_catalogs(${quoteLiteral(location)}, ${options.join(", ")})`));
+      return catalogNames(result.rows);
+    });
+    try { return await probe(); }
+    catch (error) {
+      if (!isRecoverableAuthError(error)) throw error;
+      sessionStorage.removeItem(sessionTokenKey(location));
+      progress?.("Waiting for sign-in…");
+      try { await signIn(location); }
+      catch { throw new Error("Sign-in wasn’t completed. Try Find catalogs again, or enter the catalog name manually."); }
+      progress?.("Finding catalogs…");
+      return probe();
+    }
+  }
+
+  static async testConnection(definition: ConnectionDefinition): Promise<QueryResult> {
+    assertHttpsConnection(definition);
+    const probe = () => runConnectionTest(signal => new BrowserBackend(definition, () => bootHaybarn(signal), false)
+      .query("SELECT current_catalog(), current_schema();"));
+    try { return await probe(); }
+    catch (error) {
+      if (!(error instanceof ConnectionSignInRequired)) throw error;
+      // Human sign-in is separate from the bounded network probe. The failed
+      // probe's worker has already been disposed before opening the dialog.
+      sessionStorage.removeItem(sessionTokenKey(definition.location));
+      await signIn(definition.location);
+      return probe();
+    }
+  }
+
+  private queryTail: Promise<void> = Promise.resolve();
+
+  query(sql: string, options: QueryOptions = {}): Promise<QueryResult> {
+    // One pending query per connection: a queued request must never interrupt its predecessor.
+    const pending = this.queryTail.then(async () => {
+      options.signal?.throwIfAborted();
+      const connection = await this.connection(options.signal);
+      const started = performance.now();
+      const table = await this.queryConnection(connection, sql, options.signal);
       const result = arrowResult(table, performance.now() - started);
       if (options.maxRows && result.rows.length > options.maxRows) {
-        result.rows = result.rows.slice(0, options.maxRows);
-        result.truncated = true;
+        result.rows = result.rows.slice(0, options.maxRows); result.truncated = true;
       }
       return result;
-    } finally {
-      options.signal?.removeEventListener("abort", cancel);
-    }
+    });
+    this.queryTail = pending.then(() => {}, () => {});
+    return pending;
+  }
+
+  private async queryConnection(connection: AsyncConnection, sql: string, signal?: AbortSignal): Promise<Table> {
+    signal?.throwIfAborted();
+    let cancellation: Promise<boolean> | undefined;
+    const cancel = () => { cancellation = connection.cancelSent().catch(() => false); };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      return signal ? await tableFromIPC(await connection.send(sql, false)) : await connection.query(sql);
+    } catch (error) {
+      if (signal?.aborted) throw new DOMException("Query cancelled.", "AbortError");
+      throw error;
+    } finally { signal?.removeEventListener("abort", cancel); await cancellation; }
   }
 
   async call(functionName: string, args: CellMatrix[], options: QueryOptions = {}): Promise<QueryResult> {
@@ -119,37 +184,42 @@ export class BrowserBackend implements QueryBackend {
     return this.query(sql);
   }
 
-  private async connection(): Promise<AsyncConnection> {
+  private async connection(signal?: AbortSignal): Promise<AsyncConnection> {
     assertHttpsConnection(this.definition);
-    const connection = await (this.runtime ??= BrowserBackend.ensureBooted().then(({ db }) => db.connect()));
+    const connection = await waitForConnection(this.runtime ??= this.runtimeFactory().then(({ db }) => db.connect()), signal);
     if (!this.attached) {
       await configureTimeZone(connection);
-      await connection.query("INSTALL vgi FROM community").catch(() => undefined);
-      await connection.query("LOAD vgi");
+      // Load before metadata queries; threaded WASM can stall when JSON autoloads mid-query.
+      signal?.throwIfAborted();
+      await this.queryConnection(connection, "LOAD json", signal);
+      await this.queryConnection(connection, "INSTALL vgi FROM community", signal).catch(error => { signal?.throwIfAborted(); });
+      await this.queryConnection(connection, "LOAD vgi", signal);
       try {
-        await this.attach(connection);
+        await this.attach(connection, signal);
       } catch (error) {
         if (!isRecoverableAuthError(error)) throw error;
+        if (!this.interactiveAuth) throw new ConnectionSignInRequired("Sign-in is required.");
         sessionStorage.removeItem(sessionTokenKey(this.definition.location));
-        await signIn(this.definition.location);
-        await this.attach(connection);
+        await signIn(this.definition.location, signal);
+        await this.attach(connection, signal);
       }
       this.attached = true;
     }
     return connection;
   }
 
-  private async attach(connection: AsyncConnection): Promise<void> {
+  private async attach(connection: AsyncConnection, signal?: AbortSignal): Promise<void> {
     const alias = this.definition.catalog ?? this.definition.name;
     const options: string[] = ["TYPE vgi", `LOCATION ${quoteLiteral(this.definition.location)}`];
     const token = getServiceToken(this.definition.location);
+    if (!this.interactiveAuth || !runtimeDiagnostics.crossOriginIsolated || !runtimeDiagnostics.sharedArrayBuffer) await this.queryConnection(connection, `SET vgi_oauth_enabled=${token?.refresh_token ? "true" : "false"}`);
     if (token?.refresh_token) options.push(`oauth_refresh_token ${quoteLiteral(token.refresh_token)}`);
     else if (token?.access_token) options.push(`bearer_token ${quoteLiteral(token.access_token)}`);
     for (const [key, value] of Object.entries(this.definition.attachOptions ?? {})) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid ATTACH option: ${key}`);
       options.push(`${key} ${sqlValue(value)}`);
     }
-    await connection.query(`ATTACH OR REPLACE ${quoteLiteral(alias)} AS ${quoteIdentifier(alias)} (${options.join(", ")})`);
+    await this.queryConnection(connection, `ATTACH OR REPLACE ${quoteLiteral(alias)} AS ${quoteIdentifier(alias)} (${options.join(", ")})`, signal);
   }
 
   private static ensureBooted(): Promise<{ db: duckdb.AsyncDuckDB }> {
@@ -158,7 +228,7 @@ export class BrowserBackend implements QueryBackend {
   }
 }
 
-async function bootHaybarn(): Promise<{ db: duckdb.AsyncDuckDB }> {
+async function bootHaybarn(signal?: AbortSignal): Promise<{ db: duckdb.AsyncDuckDB }> {
   const base = (import.meta.env.VITE_HAYBARN_ASSET_BASE as string | undefined) ?? DEFAULT_ARTIFACT_BASE;
   runtimeDiagnostics.assetBase = base;
   const bundles: duckdb.DuckDBBundles = {
@@ -171,12 +241,16 @@ async function bootHaybarn(): Promise<{ db: duckdb.AsyncDuckDB }> {
     },
   };
   const selected = await duckdb.selectBundle(bundles);
+  signal?.throwIfAborted();
   runtimeDiagnostics.selectedBundle = selected === bundles.coi ? "coi" : selected === bundles.eh ? "eh" : "mvp";
   const worker = new Worker(selected.mainWorker!);
+  signal?.addEventListener("abort", () => worker.terminate(), { once: true });
   if (runtimeDiagnostics.crossOriginIsolated && runtimeDiagnostics.sharedArrayBuffer) installVgiOAuthBridge(worker);
   const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
   await db.instantiate(selected.mainModule, selected.pthreadWorker);
-  await db.open({ arrowLosslessConversion: true });
+  // Keep pending-query cancellation reusable on the current threaded WASM build.
+  // Multiple execution threads can leave the engine blocked after interruption.
+  await db.open({ arrowLosslessConversion: true, maximumThreads: 1 });
   return { db };
 }
 
@@ -218,4 +292,14 @@ function uniqueHeader(header: string, index: number, columns: Record<string, unk
   let suffix = 2;
   while (name in columns) name = `${base}_${suffix++}`;
   return name;
+}
+
+function waitForConnection<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new DOMException("Stopped", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    pending.then(value => { signal.removeEventListener("abort", abort); resolve(value); }, error => { signal.removeEventListener("abort", abort); reject(error); });
+  });
 }

@@ -98,6 +98,9 @@ $hadRegistry = Test-Path $registry
 $registryBackup = if ($hadRegistry) { [PSCustomObject]@{ Bytes = [IO.File]::ReadAllBytes($registry) } } else { $null }
 $hadDefault = Test-Path $defaultFile
 $defaultBackup = if ($hadDefault) { [PSCustomObject]@{ Bytes = [IO.File]::ReadAllBytes($defaultFile) } } else { $null }
+$backups = Join-Path (Split-Path -Parent $PSScriptRoot) '..\artifacts\local-test-backups'
+New-Item -ItemType Directory -Force $backups | Out-Null
+if ($hadRegistry) { [IO.File]::WriteAllBytes((Join-Path $backups ('connections-before-xll-' + [Guid]::NewGuid().ToString('N') + '.json')), $registryBackup.Bytes) }
 $existingProcesses = @(Get-Process EXCEL -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
 $excelRegistrations = @(Save-ExcelRegistrations)
 Disable-VgiRegistrations $excelRegistrations
@@ -158,10 +161,18 @@ finally {
     [GC]::Collect()
     [GC]::WaitForPendingFinalizers()
     Restore-ExcelRegistrations $excelRegistrations
-    if ($hadRegistry) { [IO.File]::WriteAllBytes($registry, $registryBackup.Bytes) }
-    elseif (Test-Path $registry) { Remove-Item -Force $registry }
-    if ($hadDefault) { [IO.File]::WriteAllBytes($defaultFile, $defaultBackup.Bytes) }
-    elseif (Test-Path $defaultFile) { Remove-Item -Force $defaultFile }
+    if (Test-Path $registry) {
+        # Assign the ConvertFrom-Json result directly before enumerating it. Wrapping
+        # its pipeline output in @() can create an array containing the whole list.
+        $current = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registry))
+        $kept = @($current | Where-Object { $_.Name -ne $testName -and $_.Name -ne $badName })
+        if (!$hadRegistry -and $kept.Count -eq 0) { Remove-Item -LiteralPath $registry -Force }
+        else { [IO.File]::WriteAllText($registry, (ConvertTo-Json -InputObject $kept -Depth 20), (New-Object Text.UTF8Encoding($false))) }
+    }
+    if ((Test-Path $defaultFile) -and ([IO.File]::ReadAllText($defaultFile).Trim() -in @($testName, $badName))) {
+        if ($hadDefault) { [IO.File]::WriteAllBytes($defaultFile, $defaultBackup.Bytes) }
+        else { Remove-Item -LiteralPath $defaultFile -Force }
+    }
     $newProcesses = @()
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         Start-Sleep -Milliseconds 500

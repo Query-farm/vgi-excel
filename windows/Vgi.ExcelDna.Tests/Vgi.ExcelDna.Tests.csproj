@@ -7,6 +7,7 @@
     <AssemblyName>Vgi.ExcelDna.Tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
     <ProjectReference Include="..\Vgi.ExcelDna\Vgi.ExcelDna.csproj" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="System.Windows.Forms" />

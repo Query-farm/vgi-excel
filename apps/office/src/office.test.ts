@@ -195,8 +195,8 @@ describe("agent loop", () => {
     expect(queries).toEqual(["SELECT 42 AS value"]);
     expect(answer.text).toBe("Let me check.\n\nThe value is 42.");
     expect(answer.stagedResult).toEqual(queryResult);
-    expect(String(bodies[0].system)).toContain("Connection name: weather");
-    expect(String(bodies[0].system)).toContain("Attached catalog: open_meteo");
+    expect(JSON.stringify(bodies[0].system)).toContain("Connection name: weather");
+    expect(JSON.stringify(bodies[0].system)).toContain("Attached catalog: open_meteo");
   });
 
   it("routes create_query_tab through the host context without running SQL", async () => {
@@ -242,4 +242,22 @@ describe("VGI function discovery", () => {
     expect(functions[0].parameters[1]).toMatchObject({ name: "temperature_unit", kind: "named", choices: ["celsius", "fahrenheit"] });
     expect(functions[1].kind).toBe("aggregate");
   });
+});
+
+
+it("freezes the Office system prompt over follow-up questions", async () => {
+  let inventoryLoads = 0;
+  const context: AgentToolContext = {
+    backend: { async query() { throw new Error("unused"); }, async call() { throw new Error("unused"); } },
+    async listTables() { inventoryLoads++; return [{ table_catalog: "weather", table_schema: "main", table_name: `table${inventoryLoads}`, table_type: "table" }]; },
+    async listFunctions() { return []; }, async describeTable() { return []; },
+  };
+  const bodies: any[] = [];
+  const fetchImpl: typeof fetch = async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ content: [{ type: "text", text: "Done" }], stop_reason: "end_turn" })); };
+  const session = new OfficeAgentSession();
+  await session.run("key", "First", context, undefined, { fetchImpl, connection: { name: "weather", catalog: "weather" } });
+  await session.run("key", "Second", context, undefined, { fetchImpl, connection: { name: "weather", catalog: "weather" } });
+  expect(inventoryLoads).toBe(1);
+  expect(bodies[1].system).toEqual(bodies[0].system);
+  expect(bodies[1].messages.slice(0, bodies[0].messages.length)).toEqual(bodies[0].messages);
 });

@@ -1,0 +1,6 @@
+{
+  "Endpoint": "https://eus.codesigning.azure.net/",
+  "CodeSigningAccountName": "REPLACE_WITH_ACCOUNT_NAME",
+  "CertificateProfileName": "cupola-production",
+  "ExpectedSubject": "REPLACE_WITH_APPROVED_CERTIFICATE_SUBJECT"
+}

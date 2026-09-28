@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "VGI_EXCEL_TELEMETRY=0"
 set "VGI_EXCEL_REQUIRE_CREDENTIAL_MANAGER=1"
 cd /d "%~dp0\..\.."
 if not exist artifacts mkdir artifacts

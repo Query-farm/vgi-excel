@@ -87,7 +87,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 function finish(payload: unknown): void {
-  Office.context.ui.messageParent(JSON.stringify(payload));
+  Office.context.ui.messageParent(JSON.stringify(payload), { targetOrigin: window.location.origin });
 }
 
 function randomBase64Url(bytes: number): string {

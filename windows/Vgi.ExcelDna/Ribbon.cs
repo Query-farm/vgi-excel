@@ -16,12 +16,6 @@ public sealed class VgiRibbon : ExcelRibbon
       <tab id='VgiTab' label='Cupola'>
         <group id='VgiDataGroup' label='Cupola Data'>
           <button id='VgiWorkbench' label='Cupola' size='large' getImage='GetCupolaImage' onAction='OpenWorkbench'/>
-          <button id='VgiConnections' label='Connections' imageMso='DataConnections' onAction='OpenConnections'/>
-          <button id='CupolaRefreshTables' label='Refresh Cupola tables' imageMso='RefreshAll' onAction='RefreshCupolaTables'/>
-          <button id='VgiRefresh' label='Refresh formulas' imageMso='RefreshAll' onAction='RefreshFormulas'/>
-        </group>
-        <group id='VgiHelpGroup' label='Help'>
-          <button id='VgiDiagnostics' label='Diagnostics' imageMso='Info' onAction='ShowDiagnostics'/>
         </group>
       </tab>
     </tabs>
@@ -31,21 +25,6 @@ public sealed class VgiRibbon : ExcelRibbon
     public object GetCupolaImage(IRibbonControl control) => base.LoadImage("CupolaMark");
 
     public void OpenWorkbench(IRibbonControl control) => WorkbenchWindow.Show(0);
-    public void OpenConnections(IRibbonControl control) => WorkbenchWindow.Show(3);
-    public void RefreshCupolaTables(IRibbonControl control)
-    {
-        try { MessageBox.Show($"Refreshed {WorkbookBridge.RefreshAllSnapshots()} Cupola table(s).", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information); }
-        catch (Exception error) { ErrorLog.Write(error, "ribbon.refresh-snapshots"); MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
-    }
-
-    public void RefreshFormulas(IRibbonControl control)
-    {
-        try { ((dynamic)ExcelDnaUtil.Application).CalculateFull(); }
-        catch (Exception error) { ErrorLog.Write(error, "ribbon.refresh-formulas"); MessageBox.Show(error.Message, ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Error); }
-    }
-
-    public void ShowDiagnostics(IRibbonControl control) =>
-        MessageBox.Show(HaybarnClient.Diagnostics(), ProductInfo.Name + " diagnostics", MessageBoxButtons.OK, MessageBoxIcon.Information);
 }
 
 internal static class WorkbenchWindow

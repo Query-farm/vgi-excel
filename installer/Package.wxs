@@ -1,19 +1,68 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Cupola for Excel" Manufacturer="Query Farm LLC" Version="0.4.0" UpgradeCode="9C26AB13-1E7D-4D5F-948D-BBDDC9444346" Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer Cupola for Excel installation is already present." />
+  <Package Name="Cupola for Excel" Manufacturer="Query Farm LLC" Version="0.5.0" UpgradeCode="9C26AB13-1E7D-4D5F-948D-BBDDC9444346" Scope="perMachine">
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer Cupola for Excel installation is already present." />
     <MediaTemplate EmbedCab="yes" />
+    <Binary Id="InstallerChecks" SourceFile="..\artifacts\installer-checks\Release\CupolaInstallerChecks.dll" />
+    <CustomAction Id="CheckCupolaEnvironment" BinaryRef="InstallerChecks" DllEntry="CheckEnvironment" Execute="immediate" Return="check" />
+    <InstallUISequence><Custom Action="CheckCupolaEnvironment" Before="LaunchConditions" /></InstallUISequence>
+    <InstallExecuteSequence><Custom Action="CheckCupolaEnvironment" Before="LaunchConditions" /></InstallExecuteSequence>
+    <Launch Condition="CUPOLA_PLATFORM_SUPPORTED" Message="This Cupola package requires an x64 Windows desktop." />
+    <Launch Condition="NOT CUPOLA_EXCEL_RUNNING" Message="Close Excel before installing, repairing, upgrading, or removing Cupola. Automated deployment should retry later." />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="NETFRAMEWORKRELEASE">
+      <RegistrySearch Id="Net48" Root="HKLM" Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" Name="Release" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="EXCELPLATFORM">
+      <RegistrySearch Id="ExcelPlatform" Root="HKLM" Key="SOFTWARE\Microsoft\Office\ClickToRun\Configuration" Name="Platform" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="WEBVIEWVERSION">
+      <RegistrySearch Id="WebViewRuntime" Root="HKLM" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always32" />
+    </Property>
+    <Launch Condition="Installed OR (NETFRAMEWORKRELEASE &gt;= 528040)" Message="Cupola requires .NET Framework 4.8 or later." />
+    <Launch Condition="Installed OR (EXCELPLATFORM = &quot;x64&quot;)" Message="This Cupola package requires 64-bit Microsoft 365 Click-to-Run Excel." />
+    <Launch Condition="Installed OR (WEBVIEWVERSION AND WEBVIEWVERSION &lt;&gt; &quot;0.0.0.0&quot;)" Message="Deploy the Microsoft Edge WebView2 Evergreen Runtime for all users before installing Cupola." />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="QueryFarmFolder" Name="Query Farm">
         <Directory Id="INSTALLFOLDER" Name="Cupola for Excel">
+          <Component Id="ExcelLoader" Guid="*" Bitness="always64">
+            <File Id="CupolaExcelLoaderDll" Source="..\artifacts\xll\Cupola.ExcelLoader.dll" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\QueryFarm.Cupola.ExcelLoader" Value="QueryFarm.Cupola.ExcelLoader.Connect" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\QueryFarm.Cupola.ExcelLoader\CLSID" Value="{59B35EE7-3344-4F74-94C6-030FE4AA236C}" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}" Value="QueryFarm.Cupola.ExcelLoader.Connect" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\ProgId" Value="QueryFarm.Cupola.ExcelLoader" Type="string" />
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}" ForceCreateOnInstall="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Value="mscoree.dll" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Name="ThreadingModel" Value="Both" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Name="Class" Value="QueryFarm.Cupola.ExcelLoader.Connect" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Name="Assembly" Value="Cupola.ExcelLoader, Version=!(bind.fileVersion.CupolaExcelLoaderDll), Culture=neutral, PublicKeyToken=null" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Name="RuntimeVersion" Value="v4.0.30319" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32" Name="CodeBase" Value="file:///[#CupolaExcelLoaderDll]" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32\!(bind.fileVersion.CupolaExcelLoaderDll)" Name="Class" Value="QueryFarm.Cupola.ExcelLoader.Connect" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32\!(bind.fileVersion.CupolaExcelLoaderDll)" Name="Assembly" Value="Cupola.ExcelLoader, Version=!(bind.fileVersion.CupolaExcelLoaderDll), Culture=neutral, PublicKeyToken=null" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32\!(bind.fileVersion.CupolaExcelLoaderDll)" Name="RuntimeVersion" Value="v4.0.30319" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\CLSID\{59B35EE7-3344-4F74-94C6-030FE4AA236C}\InprocServer32\!(bind.fileVersion.CupolaExcelLoaderDll)" Name="CodeBase" Value="file:///[#CupolaExcelLoaderDll]" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Office\Excel\Addins\QueryFarm.Cupola.ExcelLoader" Name="FriendlyName" Value="Cupola for Excel" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Office\Excel\Addins\QueryFarm.Cupola.ExcelLoader" Name="Description" Value="Loads Cupola for Excel for this Windows user." Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Office\Excel\Addins\QueryFarm.Cupola.ExcelLoader" Name="LoadBehavior" Value="3" Type="integer" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Office\Excel\Addins\QueryFarm.Cupola.ExcelLoader" Name="CommandLineSafe" Value="0" Type="integer" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\QueryFarm\Cupola" Name="InstallDirectory" Value="[INSTALLFOLDER]" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\QueryFarm\Cupola" Name="Version" Value="[ProductVersion]" Type="string" />
+          </Component>
           <Component Id="HaybarnFile" Guid="*" Bitness="always64">
             <File Source="..\artifacts\xll\haybarn.exe" />
           </Component>
+          <Component Id="CupolaOdbcDriver" Guid="*" Bitness="always64">
+            <File Id="CupolaOdbcDll" Source="..\artifacts\xll\haybarn_odbc.dll" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers" Name="Cupola for Excel" Value="Installed" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\Cupola for Excel" Name="Driver" Value="[#CupolaOdbcDll]" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\Cupola for Excel" Name="APILevel" Value="2" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\Cupola for Excel" Name="DriverODBCVer" Value="03.00" Type="string" />
+          </Component>
+          <Component Id="OdbcNotices" Guid="*" Bitness="always64"><File Source="..\artifacts\xll\ODBC-NOTICES.txt" /></Component>
           <Component Id="VgiExtensionFile" Guid="*" Bitness="always64">
             <File Source="..\artifacts\xll\vgi.duckdb_extension" />
-          </Component>
-          <Component Id="ExcelDna32File" Guid="*" Bitness="always64">
-            <File Source="..\artifacts\xll\Vgi.ExcelDna-packed.xll" KeyPath="yes" />
           </Component>
           <Component Id="ExcelDna64File" Guid="*" Bitness="always64">
             <File Source="..\artifacts\xll\Vgi.ExcelDna64-packed.xll" />
@@ -27,41 +76,21 @@
           <Component Id="WebViewFormsFile" Guid="*" Bitness="always64">
             <File Source="..\artifacts\xll\Microsoft.Web.WebView2.WinForms.dll" />
           </Component>
-          <Component Id="InstallScriptFile" Guid="*" Bitness="always64">
-            <File Source="..\artifacts\xll\install-xll.ps1" />
-          </Component>
-          <Component Id="UpdateScriptFile" Guid="*" Bitness="always64">
-            <File Source="..\artifacts\xll\Update Cupola for Excel.cmd" />
-          </Component>
-          <Directory Id="WebAssetsFolder" Name="web">
-            <Component Id="WebIndexAsset" Guid="*" Bitness="always64">
-              <File Source="..\artifacts\xll\web\index.html" />
-            </Component>
-            <Directory Id="WebAssetsFilesFolder" Name="assets">
-              <Component Id="WebScriptAsset" Guid="*" Bitness="always64">
-                <File Source="..\artifacts\xll\web\assets\workbench.js" />
-              </Component>
-              <Component Id="WebStyleAsset" Guid="*" Bitness="always64">
-                <File Source="..\artifacts\xll\web\assets\workbench.css" />
-              </Component>
-            </Directory>
-          </Directory>
+          <Directory Id="WebAssetsFolder" Name="web" />
         </Directory>
       </Directory>
     </StandardDirectory>
     <Feature Id="Complete" Title="Cupola for Excel" Level="1">
+      <ComponentRef Id="ExcelLoader" />
       <ComponentRef Id="HaybarnFile" />
+      <ComponentRef Id="CupolaOdbcDriver" />
+      <ComponentRef Id="OdbcNotices" />
       <ComponentRef Id="VgiExtensionFile" />
-      <ComponentRef Id="ExcelDna32File" />
       <ComponentRef Id="ExcelDna64File" />
       <ComponentRef Id="WebViewLoaderFile" />
       <ComponentRef Id="WebViewCoreFile" />
       <ComponentRef Id="WebViewFormsFile" />
-      <ComponentRef Id="InstallScriptFile" />
-      <ComponentRef Id="UpdateScriptFile" />
-      <ComponentRef Id="WebIndexAsset" />
-      <ComponentRef Id="WebScriptAsset" />
-      <ComponentRef Id="WebStyleAsset" />
+      <Files Directory="WebAssetsFolder" Include="..\artifacts\xll\web\**" />
     </Feature>
   </Package>
 </Wix>
