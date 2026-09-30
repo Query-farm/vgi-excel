@@ -1,7 +1,7 @@
 # Cupola for Excel releases in GitHub Actions
 
 Open **Actions → Cupola for Excel Windows release → Run workflow**, select the
-release branch, and choose a mode:
+`main` branch, and choose a mode:
 
 - **signed-draft** runs web checks, builds pinned native inputs, validates the
   Windows package, signs it in Azure, and creates a draft GitHub release.
@@ -13,6 +13,12 @@ Release builds run on GitHub-hosted `windows-2022` runners; web checks run on
 Ubuntu. Europa and a personal Azure login are not required. Native builds are
 cached by the source lock, Cupola ODBC patch, and build script; a cold build takes
 longer. Native provenance is verified again before production signing.
+
+The first complete [hosted release run](https://github.com/Query-farm/vgi-excel/actions/runs/36753332717)
+passed on 2026-09-30 and produced signed draft `v0.5.0-20260930.0`. It passed
+179 unit tests, 64 UI tests, 7 live WASM tests, native/ODBC checks, Windows package
+checks, and production signature verification. The initial native compilation
+took about 19 minutes; its outputs are cached for later runs.
 
 ## Drafts and qualification
 
@@ -49,8 +55,7 @@ repo:Query-farm@183420031/vgi-excel@1341795270:environment:cupola-release
 
 The `cupola-release` GitHub environment stores the three Azure identifier secrets
 and four signing variables listed in [Azure signing](azure-signing.md). Its branch
-policy permits `main` and the setup branch `codex/github-releases`. Remove the
-setup-branch policy after merging and qualification. Signing jobs alone receive
+policy permits `main`. Signing jobs alone receive
 `id-token: write`; the build jobs have read-only repository access. The draft
 release job also receives `contents: write`, and always uses `--draft`. A separate
 input-download job receives `contents: write` because GitHub requires it to read

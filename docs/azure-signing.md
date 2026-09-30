@@ -17,6 +17,9 @@ Run **Actions → Cupola for Excel Windows release → Run workflow**, selecting
 **signing-test** to verify authentication or **signed-draft** to build a release.
 The latter validates the unsigned candidate before signing and creates a draft
 for real Excel and installation qualification. It never publishes automatically.
+The complete hosted build and signing path passed on 2026-09-30 and created
+signed draft `v0.5.0-20260930.0`; all 16 Authenticode payloads passed publisher
+and timestamp verification.
 
 ## Workstation prerequisites
 
