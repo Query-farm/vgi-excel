@@ -52,7 +52,9 @@ and four signing variables listed in [Azure signing](azure-signing.md). Its bran
 policy permits `main` and the setup branch `codex/github-releases`. Remove the
 setup-branch policy after merging and qualification. Signing jobs alone receive
 `id-token: write`; the build jobs have read-only repository access. The draft
-release job also receives `contents: write`, and always uses `--draft`.
+release job also receives `contents: write`, and always uses `--draft`. A separate
+input-download job receives `contents: write` because GitHub requires it to read
+draft release assets; that job runs no repository code and has no Azure access.
 
 ## Approved VGI input
 

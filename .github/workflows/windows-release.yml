@@ -32,9 +32,28 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
       - run: npm run test:office-wasm
+  native-input:
+    if: inputs.mode != 'signing-test'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: cupola-release
+    permissions:
+      # GitHub requires write access to see draft release assets.
+      contents: write
+    steps:
+      - name: Download approved VGI extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download cupola-native-inputs-v1 --repo "$GITHUB_REPOSITORY" --pattern vgi.duckdb_extension --dir approved-native
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cupola-approved-native
+          path: approved-native/vgi.duckdb_extension
+          if-no-files-found: error
+          retention-days: 1
   build:
     if: inputs.mode != 'signing-test'
-    needs: web
+    needs: [web, native-input]
     runs-on: windows-2022
     timeout-minutes: 120
     env:
@@ -59,12 +78,10 @@ jobs:
           key: cupola-native-windows-2022-${{ hashFiles('windows/native-inputs.lock.json', 'windows/odbc/cupola.patch', 'windows/build-native-inputs.py') }}
       - name: Download approved VGI extension
         if: steps.native.outputs.cache-hit != 'true'
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download cupola-native-inputs-v1 --repo "$env:GITHUB_REPOSITORY" --pattern vgi.duckdb_extension --dir artifacts/approved-native
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cupola-approved-native
+          path: artifacts/approved-native
       - name: Build pinned native sources
         if: steps.native.outputs.cache-hit != 'true'
         shell: powershell
