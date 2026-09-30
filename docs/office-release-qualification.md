@@ -3,6 +3,27 @@
 This covers the Microsoft 365 Office add-in, separately from the Windows XLL.
 Passing browser tests does not establish that every Excel host is qualified.
 
+## Hosted deployment evidence (2026-09-30)
+
+Cupola 0.5.0 build 20260930.3 is hosted at `https://cupola.query.farm`,
+with installation manifest version 1.0.0.1 at `/manifest.xml`.
+
+- Every uploaded application asset was verified against its local SHA-256 digest
+  before the Cloudflare Worker activated the release.
+- Microsoft's manifest validator accepted the production manifest, including its
+  XML schema, HTTPS source locations, icons, and version.
+- All eight hosted browser checks passed: real Microsoft Office SDK loading,
+  cross-origin isolation, metadata CORS, connection discovery/error recovery,
+  session-credential reuse with a mocked protected service, and live Haybarn VGI
+  queries with cancellation and result windows. No real protected-service login
+  or Excel workbook writes are established by these browser tests.
+- Automated deployment is defined in `.github/workflows/office-deploy.yml`.
+  Its first GitHub run still requires the `CLOUDFLARE_API_TOKEN` secret.
+
+The live Excel checks below remain required for this production origin before
+broad distribution. Hosting does not install the add-in into a Microsoft 365
+organization or publish it to Microsoft Marketplace.
+
 ## Current evidence (2026-09-28)
 
 - Real Safari / Excel for the web: the user has loaded Cupola and exercised Ask AI.

@@ -104,9 +104,12 @@ from Excel or another add-in.
 
 ## Versioning and packaging
 
-`package.json` is the source of truth for `version` and `cupolaBuild`. Web builds
-read it directly. Native and manifest declarations must match; `npm run check`
-enforces this. Increment `cupolaBuild` for every installable update.
+`package.json` is the source of truth for `version`, `cupolaBuild`, and
+`officeManifestVersion`. Web builds read it directly. Native declarations match
+the product version/build; the Office manifest matches `officeManifestVersion`,
+which starts at 1.0 to satisfy Microsoft's manifest validator. `npm run check`
+enforces these declarations. Increment `cupolaBuild` for every installable update
+and `officeManifestVersion` for Office manifest updates.
 
 Production Office packages are created with:
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, officeOrigin } from "./test";
 
 const endpoint = process.env.CUPOLA_LIVE_VGI_ENDPOINT ?? "https://vgi-open-meteo.rusty-bb6.workers.dev";
 
@@ -15,7 +15,7 @@ test("a stalled connection test times out, preserves the URL, and can be retried
     }]));
     localStorage.setItem("vgi.excel.default-connection.v1", "timeout-probe");
   });
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
   await expect(page.locator(".connection-form .field-error")).toContainText("timed out after 20 seconds", { timeout: 25_000 });
@@ -37,7 +37,7 @@ test("the reported misspelled hostname produces an error without changing the ad
     }]));
     localStorage.setItem("vgi.excel.default-connection.v1", "hostname-probe");
   }, mistyped);
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Test connection", exact: true }).click();
   await expect(page.locator(".connection-form .field-error")).toBeVisible({ timeout: 25_000 });
@@ -48,7 +48,7 @@ test("the reported misspelled hostname produces an error without changing the ad
 
 test("URL-first discovery defaults a new name, supports overrides, and saves only explicitly", async ({ page }) => {
   await page.route("https://appsforoffice.microsoft.com/**", route => route.abort());
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "New connection", exact: true }).click();
   const stored = await page.evaluate(() => localStorage.getItem("vgi.excel.connections.v1"));
@@ -76,7 +76,7 @@ test("incomplete sign-in explains retry and manual entry without engine details 
   await page.setViewportSize({ width: 300, height: 480 });
   await page.route("https://appsforoffice.microsoft.com/**", route => route.abort());
   await context.route("https://protected-catalogs.invalid/**", route => route.fulfill({ status: 401, headers: { "access-control-allow-origin": "*" }, body: "Authentication required" }));
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "New connection", exact: true }).click();
   await page.getByLabel("Server address").fill("https://protected-catalogs.invalid");
@@ -111,7 +111,7 @@ test("protected discovery reuses the Office session credential without saving a 
   await page.addInitScript(location => {
     sessionStorage.setItem(`vgi.excel.oauth.${location}`, JSON.stringify({ access_token: "cupola-discovery-test-only" }));
   }, location);
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "New connection", exact: true }).click();
   const before = await page.evaluate(() => localStorage.getItem("vgi.excel.connections.v1"));

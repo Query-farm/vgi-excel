@@ -137,8 +137,9 @@ Evergreen Runtime. Close Excel before installing; installation requires
 administrator access. See the [Windows setup guide](docs/development.md#windows-excel-dna-package)
 for developer XLL installation and compatibility details.
 
-The Office add-in is deployed separately. See
-[Office setup](docs/development.md#office-add-in) for hosting and sideloading.
+For the Microsoft 365 add-in, download the
+[installation manifest](https://cupola.query.farm/manifest.xml) and follow the
+[Office installation instructions](docs/cloudflare-hosting.md#installing-in-microsoft-365).
 [Release notes](https://github.com/Query-farm/vgi-excel/releases) describe package
 availability and validation status.
 

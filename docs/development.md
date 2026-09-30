@@ -20,6 +20,8 @@ Haybarn workers and WASM directly from the installed package at `/haybarn/`;
 a production build is not required first. Run `npm run test:office-dev` to
 check these asset routes and custom-function metadata access.
 
+For Cloudflare hosting, see the [production hosting and deployment instructions](cloudflare-hosting.md).
+
 For a production package:
 
 ```sh

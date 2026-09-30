@@ -1,0 +1,48 @@
+name: Cupola for Excel Office deployment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cupola-office-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: cupola-office
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:hosting
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:ui
+      - run: npm run test:office-wasm
+      - run: npm run test:office-dev
+      - run: npx --yes office-addin-manifest@3.0.1 validate apps/office/public/manifest.xml
+      - name: Publish verified static files and activate Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bb68a133a66d26a310231495b13479a1
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Configure CLOUDFLARE_API_TOKEN before deployment.'; exit 1; }
+          npm run deploy:office
+      - name: Test deployed Office application
+        env:
+          CUPOLA_OFFICE_BASE_URL: https://cupola.query.farm
+        run: npm run test:office-hosted
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cupola-office-manifest
+          path: |
+            apps/office/dist/manifest.xml
+            apps/office/dist/deployment.json
+          if-no-files-found: error

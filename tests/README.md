@@ -32,6 +32,16 @@ Accounting numeric tests keep complete DECIMAL columns numeric when every value
 fits Excel's 15-significant-digit limit, retain unsafe precision as text, apply
 scale-aware number formats, and preserve leading-zero account codes.
 
+## Cloudflare hosting checks
+
+`npm run test:hosting` checks the Worker’s routing, isolation headers, metadata
+CORS, OAuth callback handling, and exclusion of private files. Run
+`CUPOLA_OFFICE_BASE_URL=https://cupola.query.farm npm run test:office-hosted`
+after deployment to verify the public manifest and assets, load the real Office
+SDK, and exercise the WASM integration against the hosted build. Hosted tests
+block Sentry delivery. `npm run test:office-dev` runs the WebKit development tests
+sequentially because their Vite servers share an optimizer cache.
+
 ## Live Microsoft 365 / Haybarn-WASM test
 
 ```sh

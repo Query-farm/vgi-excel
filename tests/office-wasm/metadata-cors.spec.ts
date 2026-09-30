@@ -1,7 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, officeOrigin } from "./test";
 
 test("Excel can fetch public function metadata across origins without exposing dev sources", async ({ page, request, context }) => {
-  const base = "https://127.0.0.1:4184";
+  const base = officeOrigin;
   const origin = "https://excel.officeapps.live.com";
   // Explicitly grant loopback access so this test isolates CORS from browser prompts.
   await context.grantPermissions(["local-network-access"], { origin });

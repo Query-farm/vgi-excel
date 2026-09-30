@@ -7,8 +7,11 @@ if (!baseArg) throw new Error("Usage: npm run package:office -- --base-url=https
 const baseUrl = baseArg.slice("--base-url=".length).replace(/\/$/, "");
 if (!baseUrl.startsWith("https://")) throw new Error("The production add-in base URL must use HTTPS.");
 
-run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build", "-w", "@query-farm/vgi-excel-office"]);
-run(process.execPath, [resolve("scripts/render-manifest.mjs"), `--base-url=${baseUrl}`]);
+const assetArg = process.argv.find(arg => arg.startsWith("--asset-path="));
+const assetPath = assetArg?.slice("--asset-path=".length) ?? "/";
+
+run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build", "-w", "@query-farm/vgi-excel-office", "--", `--base=${assetPath}`]);
+run(process.execPath, [resolve("scripts/render-manifest.mjs"), `--base-url=${baseUrl}`, `--asset-path=${assetPath}`]);
 
 const manifest = await readFile(resolve("apps/office/dist/manifest.xml"), "utf8");
 if (manifest.includes("localhost")) throw new Error("The packaged Office manifest still contains localhost URLs.");

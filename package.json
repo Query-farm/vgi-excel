@@ -2,7 +2,7 @@
   "name": "@query-farm/vgi-excel",
   "private": true,
   "version": "0.5.0",
-  "cupolaBuild": "20260930.1",
+  "cupolaBuild": "20260930.3",
   "workspaces": [
     "apps/office",
     "apps/desktop",
@@ -14,19 +14,24 @@
     "package:office": "node scripts/package-office.mjs",
     "check": "node scripts/check-version.mjs && npm run check -w @query-farm/vgi-excel-core && npm run check -w @query-farm/vgi-excel-office && npm run check -w @query-farm/vgi-excel-desktop",
     "test": "npm run test -w @query-farm/vgi-excel-core && npm run test -w @query-farm/vgi-excel-office && npm run test -w @query-farm/vgi-excel-desktop",
-    "test:office-dev": "node --test tests/office-dev/*.test.mjs",
+    "test:office-dev": "node --test --test-concurrency=1 tests/office-dev/*.test.mjs",
     "test:ui": "playwright test",
     "test:office-wasm": "npm run build -w @query-farm/vgi-excel-office && playwright test --config playwright.office-wasm.config.ts",
     "dev": "npm run dev -w @query-farm/vgi-excel-office",
     "build:windows": "dotnet build windows/Vgi.Excel.sln -c Release",
     "publish:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/publish.ps1",
-    "manifest": "node scripts/render-manifest.mjs"
+    "manifest": "node scripts/render-manifest.mjs",
+    "test:hosting": "node --test tests/hosting/*.test.mjs",
+    "deploy:office": "node scripts/deploy-office.mjs",
+    "test:office-hosted": "node scripts/verify-office-host.mjs && playwright test --config playwright.office-wasm.config.ts"
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
-    "@sentry/vite-plugin": "^5.4.0"
-  }
+    "@sentry/vite-plugin": "^5.4.0",
+    "wrangler": "4.100.0"
+  },
+  "officeManifestVersion": "1.0.0.1"
 }

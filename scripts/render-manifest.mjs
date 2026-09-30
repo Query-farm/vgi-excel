@@ -1,11 +1,16 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
-const baseArg = process.argv.find((arg) => arg.startsWith("--base-url="));
-if (!baseArg) throw new Error("Usage: npm run manifest -- --base-url=https://vgi-excel.example.com");
-const baseUrl = baseArg.slice("--base-url=".length).replace(/\/$/, "");
-if (!baseUrl.startsWith("https://")) throw new Error("The production add-in base URL must use HTTPS.");
-const path = resolve("apps/office/dist/manifest.xml");
-const manifest = await readFile(path, "utf8");
-await writeFile(path, manifest.replaceAll("https://localhost:3000", baseUrl));
-console.log(`Rendered ${path} for ${baseUrl}`);
+const value = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
+const rawBase = value('base-url');
+if (!rawBase) throw new Error('Usage: npm run manifest -- --base-url=https://cupola.example.com');
+const base = new URL(rawBase);
+if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/') {
+  throw new Error('The production add-in base URL must be an HTTPS origin.');
+}
+const assetPath = value('asset-path') ?? '/';
+if (!/^\/(?:releases\/[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}\.[0-9]+\/)?$/.test(assetPath)) throw new Error('Invalid asset path.');
+const path = resolve('apps/office/dist/manifest.xml');
+const manifest = await readFile(path, 'utf8');
+await writeFile(path, manifest.replaceAll('https://localhost:3000/', `${base.origin}${assetPath}`));
+console.log(`Rendered ${path} for ${base.origin}${assetPath}`);

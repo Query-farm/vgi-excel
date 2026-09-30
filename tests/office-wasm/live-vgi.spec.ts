@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, officeOrigin } from "./test";
 
 const endpoint = process.env.CUPOLA_LIVE_VGI_ENDPOINT ?? "https://vgi-open-meteo.rusty-bb6.workers.dev";
 
@@ -19,7 +19,7 @@ test("self-hosted Haybarn WASM attaches an HTTPS Catalog and executes SQL", asyn
     localStorage.setItem("vgi.excel.default-connection.v1", "open-meteo-live");
   }, { location: endpoint });
 
-  await page.goto("https://127.0.0.1:4184/taskpane.html");
+  await page.goto(`${officeOrigin}/taskpane.html`);
   expect(await page.evaluate(() => globalThis.crossOriginIsolated)).toBe(true);
   await expect(page.locator(".query-results-pane")).toHaveCount(0);
   await page.getByLabel("SQL query").fill("SELECT 42 AS wasm_answer, current_setting('TimeZone') AS local_time_zone;");

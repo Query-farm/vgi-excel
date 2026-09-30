@@ -5,13 +5,13 @@
   xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
   xsi:type="TaskPaneApp">
   <Id>8d527de9-c26e-4ba0-9142-d72e438abdc6</Id>
-  <Version>0.5.0.0</Version>
+  <Version>1.0.0.1</Version>
   <ProviderName>Query Farm LLC</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Cupola for Excel"/>
   <Description DefaultValue="Explore and query secure HTTPS VGI catalogs from Excel."/>
-  <IconUrl DefaultValue="https://cupola.query-farm.services/cupola-icon.png"/>
-  <HighResolutionIconUrl DefaultValue="https://cupola.query-farm.services/cupola-icon.png"/>
+  <IconUrl DefaultValue="https://localhost:3000/icons/cupola-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/icons/cupola-128.png"/>
   <SupportUrl DefaultValue="https://query.farm"/>
   <AppDomains>
     <AppDomain>https://query.farm</AppDomain>
@@ -61,9 +61,9 @@
     </Hosts>
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://cupola.query-farm.services/cupola-icon.png"/>
-        <bt:Image id="Icon.32" DefaultValue="https://cupola.query-farm.services/cupola-icon.png"/>
-        <bt:Image id="Icon.80" DefaultValue="https://cupola.query-farm.services/cupola-icon.png"/>
+        <bt:Image id="Icon.16" DefaultValue="https://localhost:3000/icons/cupola-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://localhost:3000/icons/cupola-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://localhost:3000/icons/cupola-80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Shared.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
