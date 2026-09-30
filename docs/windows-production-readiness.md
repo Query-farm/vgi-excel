@@ -25,7 +25,8 @@ Click-to-Run Excel. The release is a candidate until the gates below pass.
 - Pinned ODBC source + reviewed Cupola patch, pinned Haybarn engine source, and
   checksum-verified CLI/extension inputs provide a repeatable native build recipe.
 - Production publishing requires native provenance and timestamped signatures.
-  A manually triggered CI workflow targets a dedicated Windows/Excel runner.
+  A manually triggered CI workflow builds and signs on GitHub-hosted Windows,
+  creating a draft for real Excel qualification. See [GitHub releases](github-releases.md).
 
 ## Release gates still to prove
 
