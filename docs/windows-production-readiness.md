@@ -38,9 +38,10 @@ Click-to-Run Excel. The release is a candidate until the gates below pass.
   customer profile.
 - Real Excel startup and Power Query refresh from the actual MSI installation,
   including OAuth-protected catalogs, expired/renewed sessions, and workbook reopen.
-- Production signing certificate or signing service, trust deployment, and a
-  dedicated release runner. Europa currently has no code-signing certificate and
-  no Hyper-V management installation for disposable machine testing.
+- Clean-machine trust and installation qualification of the signed production
+  package. Azure workstation signing is verified and GitHub-hosted release builds
+  use a dedicated federated identity; see [Azure signing](azure-signing.md).
+  Europa has no Hyper-V management installation for disposable machine testing.
 - Approved distribution of the pinned signed VGI extension. Its current checksum
   is recorded in `windows/native-inputs.lock.json`; the release runner must obtain
   that exact file from an approved artifact store. The tested Haybarn input is
