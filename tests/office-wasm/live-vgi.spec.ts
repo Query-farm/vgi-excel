@@ -63,7 +63,7 @@ test("self-hosted Haybarn WASM attaches an HTTPS Catalog and executes SQL", asyn
   await page.getByRole("button", { name: "Run", exact: true }).click();
   await expect(results).toContainText("123");
   await expect(popup.getByRole("table")).toContainText("84");
-  await popup.getByRole("button", { name: "Close", exact: true }).click();
+  await popup.getByRole("button", { name: "Close", exact: true }).click({ noWaitAfter: true });
   await expect.poll(() => popup.isClosed()).toBe(true);
 
   await page.getByRole("button", { name: "Hide results", exact: true }).click();
