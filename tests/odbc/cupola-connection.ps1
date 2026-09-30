@@ -63,7 +63,7 @@ try {
   $q.Dispose()
  } finally {$c.Dispose()}
  $earthquakes=@{Name='Earthquakes';Catalog='earthquakes';Location='https://vgi-earthquakes.rusty-bb6.workers.dev';Authentication='anonymous';AttachOptions=@{}}
- $profile=@{Name='Research';Members=@($name,'Earthquakes');Location='';Authentication='anonymous';AttachOptions=@{}}
+ $profile=@{IsWorkspaceProfile=$true;Name='Research';Members=@($name,'Earthquakes');Location='';Authentication='anonymous';AttachOptions=@{}}
  Write-Connections @($connection,$earthquakes,$profile)
  Write-Host 'Testing multi-catalog HTTPS attachment'
  $c=Open-Connection 'research'

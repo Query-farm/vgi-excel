@@ -1,3 +1,5 @@
+import { WorkspaceConnections } from "./WorkspaceConnections";
+import { workspaceConnection } from "./workspace";
 import { agentQueryName, appendTranscript } from "@query-farm/vgi-excel-core";
 import { AIRequestDiagnostics, AgentTranscript, AgentResult, AgentProgress, Clarification, useClarification } from "./AgentExtras";
 import { toolStage } from "@query-farm/vgi-excel-core";
@@ -42,7 +44,7 @@ export function App(): React.JSX.Element {
   const [pendingQueries, setPendingQueries] = useState<PendingQuery[]>([]);
   const [diagnostics, setDiagnostics] = useState(`Cupola for Excel ${__APP_VERSION__}\nBuild ${__BUILD_ID__}`);
   const retry = useRef<null | (() => void)>(null);
-  const active = connections.find((item) => item.isDefault) ?? connections[0];
+  const active = workspaceConnection(connections);
 
   useEffect(() => { if (view === "connections" && settingsSection === "about") void host.diagnostics().then(setDiagnostics).catch(() => {}); }, [view, settingsSection]);
   async function refreshConnections(): Promise<void> {
@@ -484,7 +486,7 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
   const findCatalogsButton = useRef<HTMLButtonElement>(null);
   const catalogSelect = useRef<HTMLSelectElement>(null);
   const blank = (): DesktopConnection => ({ name: "", catalog: "", location: "", authentication: "anonymous", attachOptions: {} });
-  const active = values.find((value) => value.isDefault) ?? values[0];
+  const active = values.find(value => !value.members?.length && !value.isWorkspaceProfile);
   const [form, setForm] = useState<DesktopConnection>(() => active ? { ...active } : blank());
   const [originalName, setOriginalName] = useState(active?.name ?? "");
   const [profile, setProfile] = useState(!!active?.members?.length);
@@ -539,8 +541,11 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
   const enoughMembers = members.length >= (originalName ? 1 : 2);
   const profileError = members.length > 16 ? "Choose at most 16 connections." : memberCatalogs.some((catalog) => !catalog) ? "A selected connection is missing." : new Set(memberCatalogs).size !== members.length ? "These connections use the same catalog name. Choose connections with different catalog names." : "";
   const valid = !nameError && !!form.name.trim() && (profile ? enoughMembers && !profileError : !!form.catalog.trim() && /^https:\/\//i.test(form.location.trim()) && !attachOptionsError);
+  async function applyWorkspace(members: string[]): Promise<void> {
+    await perform("Updating workspace…", async () => { setValues(await host.setWorkspace(members)); }, null);
+  }
   return <div className="connection-layout">
-    <fieldset className="connection-sidebar" disabled={busy}><button className="primary new-connection" onClick={create}>New connection</button>{individualConnections.length >= 2 && <button className="combine-connections" onClick={combine}>Combine saved connections</button>}<div className="connection-list">{values.map((value) => <button key={value.name} className={`${originalName === value.name ? "connection selected-connection" : "connection"} ${value.isDefault ? "active-connection" : ""}`} onClick={() => edit(value)} title={value.location}><span className={`health-dot ${value.authentication === "anonymous" || value.isSignedIn ? "configured" : ""}`}/><span><strong>{value.name}{value.isDefault ? " · active" : ""}</strong><small>{value.members?.length ? `${value.members.length} connections` : `${value.catalog} · ${value.isSignedIn ? "Signed in" : value.authentication === "oauth" ? "Sign-in opens when needed" : "Ready"}`}</small></span></button>)}</div></fieldset>
+    <fieldset className="connection-sidebar" disabled={busy}><WorkspaceConnections values={values} busy={busy} apply={applyWorkspace}/><button className="primary new-connection" onClick={create}>New connection</button><div className="connection-list">{individualConnections.map((value) => <button key={value.name} className={`${originalName === value.name ? "connection selected-connection" : "connection"} `} onClick={() => edit(value)} title={value.location}><span className={`health-dot ${value.authentication === "anonymous" || value.isSignedIn ? "configured" : ""}`}/><span><strong>{value.name}</strong><small>{value.members?.length ? `${value.members.length} connections` : `${value.catalog} · ${value.isSignedIn ? "Signed in" : value.authentication === "oauth" ? "Sign-in opens when needed" : "Ready"}`}</small></span></button>)}</div><details><summary>Manage profiles (advanced)</summary>{individualConnections.length >= 2 && <button onClick={combine}>New saved profile</button>}{values.filter(value => value.members?.length && !value.isWorkspaceProfile).map(value => <button key={value.name} onClick={() => edit(value)}>{value.name}</button>)}</details></fieldset>
     <fieldset className="connection-form" disabled={busy}>
       <h3>{originalName ? `Edit ${originalName}` : profile ? "Combine saved connections" : "New connection"}</h3>
       {profile ? <>
@@ -564,13 +569,13 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
       </>}
       <label>Connection name<input readOnly={referenced} value={form.name} onChange={(event) => { setNameEdited(true); setForm({ ...form, name: event.target.value }); setStatus(""); setValidation(""); }} aria-describedby="connection-name-help"/></label>
       <small id="connection-name-help">The name you’ll use to find this connection in Cupola and Excel.</small>
-      {referenced && <small>This connection is used in a combined connection. Remove it there before renaming or deleting it.</small>}
+      {referenced && <small>This connection is used by a saved profile or workspace query set. Its name is retained so saved queries keep working.</small>}
       {profile ? members.length > 0 && <details className="advanced connection-advanced"><summary>Advanced options</summary><label>Default connection<select aria-label="Default connection" value={members[0]} onChange={event => { setForm({ ...form, members: [event.target.value, ...members.filter(name => name !== event.target.value)] }); setStatus(""); setValidation(""); }}>{members.map(name => <option key={name} value={name}>{name}</option>)}</select></label><small>Used when a query doesn’t specify a catalog.</small></details> : <>
       <details className="advanced connection-advanced"><summary>Advanced options</summary><label htmlFor="desktop-attach-options">Options as JSON<textarea id="desktop-attach-options" value={attachOptionsText} onChange={(event) => { setAttachOptionsText(event.target.value); setStatus(""); setValidation(""); }} rows={4} spellCheck={false} placeholder={'{"region":"us-east"}'}/></label><small>Non-secret string, number, boolean, or null values. Cupola manages TYPE, LOCATION, and OAuth credentials.</small>{attachOptionsError && <p className="field-error" role="alert">{attachOptionsError}</p>}</details>
       </>}
       {nameError && <p className="field-error" role="alert">{nameError}</p>}
       {validation && errorAt === "connection" && <p className="field-error" role="alert">{validation}</p>}
-      <div className="actions connection-actions"><button disabled={busy || !valid} onClick={() => void test()}>{busy && status.startsWith("Testing") ? "Testing…" : "Test connection"}</button><button className="primary" disabled={busy || !valid} onClick={() => void run("Saving connection…", "Connection saved.", async () => { const prepared = definition(); let next = await host.saveConnection(prepared, values.length === 0 || !!form.isDefault, originalName); if (originalName && originalName !== prepared.name) next = await host.removeConnection(originalName); setOriginalName(prepared.name); setNameEdited(true); return next; })}>Save changes</button>{originalName && !form.isDefault && <button disabled={busy} onClick={() => void run("Switching connection…", `${form.name} is now active.`, () => host.useConnection(form.name))}>Use as active</button>}</div>
+      <div className="actions connection-actions"><button disabled={busy || !valid} onClick={() => void test()}>{busy && status.startsWith("Testing") ? "Testing…" : "Test connection"}</button><button className="primary" disabled={busy || !valid} onClick={() => void run("Saving connection…", "Connection saved.", async () => { const prepared = definition(); let next = await host.saveConnection(prepared, values.length === 0 || !!form.isDefault, originalName); if (originalName && originalName !== prepared.name) next = await host.removeConnection(originalName); setOriginalName(prepared.name); setNameEdited(true); return next; })}>Save changes</button></div>
       {status && <p className="connection-status" role="status">{status}</p>}
       {form.isSignedIn && <div className="oauth-card"><div><strong>Signed in securely</strong><small>The refresh session is encrypted for your Windows account. Cupola will reuse it automatically.</small></div><button disabled={busy} onClick={() => void run("Signing out…", "Signed out. Cupola will prompt again if this service requires authentication.", () => host.signOut(form))}>Sign out</button></div>}
       {originalName && <div className="danger-zone"><button className="danger" disabled={busy || referenced} onClick={() => { if (!window.confirm(`Remove “${originalName}” and its saved OAuth session?`)) return; void run("Removing connection…", "Connection and saved OAuth session removed.", async () => { const next = await host.removeConnection(originalName); setForm(blank()); setCatalogs([]); setManualCatalog(true); setNameEdited(false); setOriginalName(""); setAttachOptionsText(""); return next; }); }}>Remove connection</button></div>}

@@ -10,6 +10,7 @@ internal sealed class VgiConnection
 {
     public string Name { get; set; } = "";
     public string Catalog { get; set; } = "";
+    public bool IsWorkspaceProfile { get; set; }
     public string[] Members { get; set; } = Array.Empty<string>();
     [JsonIgnore] public bool IsProfile => Members is { Length: > 0 };
     public string Location { get; set; } = "";
@@ -24,6 +25,7 @@ internal static class ConnectionStore
     // The old localhost companion used connections.json with a different
     // envelope. Keep the direct-XLL registry separate so upgrades are safe.
     private static readonly string ConnectionsPath = Path.Combine(Root, "desktop-connections.json");
+    private static readonly string WorkspacePath = Path.Combine(Root, "workspace-connection.txt");
     private static readonly string DefaultPath = Path.Combine(Root, "default-connection.txt");
 
     public static IReadOnlyList<VgiConnection> List()
@@ -50,6 +52,9 @@ internal static class ConnectionStore
         Validate(connection);
         lock (Gate) ConnectionFile.Update(Root, () =>
         {
+            if (connection.IsWorkspaceProfile || List().Any(item => item.IsWorkspaceProfile &&
+                (string.Equals(item.Name, connection.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(item.Name, originalName, StringComparison.OrdinalIgnoreCase))))
+                throw new ArgumentException("Workspace connection sets are retained for saved queries and cannot be edited.");
             if (originalName is not null && !string.Equals(originalName, connection.Name, StringComparison.OrdinalIgnoreCase) && List().Any(item => string.Equals(item.Name, connection.Name, StringComparison.OrdinalIgnoreCase)))
                 throw new ArgumentException("A connection with this name already exists. Choose a different name.");
             var values = List().Where(item => !string.Equals(item.Name, connection.Name, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -67,14 +72,56 @@ internal static class ConnectionStore
         {
             lock (Gate) ConnectionFile.Update(Root, () =>
             {
+                if (List().Any(item => item.IsWorkspaceProfile && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("This connection set is retained for saved queries and cannot be removed.");
                 var values = List().Where(item => !string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (values.Any(item => (item.Members ?? Array.Empty<string>()).Contains(name, StringComparer.OrdinalIgnoreCase)))
-                    throw new InvalidOperationException("Remove this connection from its profiles before deleting it.");
+                    throw new InvalidOperationException("This connection is used by a saved profile or workspace query set and cannot be deleted.");
                 ConnectionFile.Write(ConnectionsPath, JsonConvert.SerializeObject(values, Formatting.Indented));
                 if (string.Equals(DefaultName(), name, StringComparison.OrdinalIgnoreCase))
                     ConnectionFile.Write(DefaultPath, values.FirstOrDefault()?.Name ?? "");
                 return true;
             });
+        });
+    }
+
+    // Workspace selection never changes the default used by existing formulas.
+    public static string? WorkspaceName()
+    {
+        lock (Gate)
+        {
+            var saved = List();
+            var requested = File.Exists(WorkspacePath) ? File.ReadAllText(WorkspacePath).Trim() : DefaultName();
+            return saved.FirstOrDefault(item => string.Equals(item.Name, requested, StringComparison.OrdinalIgnoreCase))?.Name
+                ?? saved.FirstOrDefault(item => !item.IsWorkspaceProfile)?.Name;
+        }
+    }
+
+    public static void SetWorkspace(string[] members)
+    {
+        lock (Gate) ConnectionFile.Update(Root, () =>
+        {
+            var saved = List().ToList();
+            if (members is null || members.Length == 0) throw new ArgumentException("Select at least one catalog.");
+            var proposed = new VgiConnection { Name = "Workspace", Members = members };
+            var attachments = ResolveAttachments(proposed, saved);
+            // The first member is the SQL default; order of the others is immaterial.
+            var canonical = new[] { attachments[0].Name }.Concat(attachments.Skip(1).Select(item => item.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase)).ToArray();
+            var identity = attachments.Count == 1 ? attachments[0] : saved.FirstOrDefault(item => item.IsWorkspaceProfile && item.Members.SequenceEqual(canonical, StringComparer.OrdinalIgnoreCase));
+            if (identity is null)
+            {
+                var label = string.Join(" + ", canonical);
+                var name = label;
+                var suffix = 2;
+                while (saved.Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))) name = label + " (" + suffix++ + ")";
+                identity = new VgiConnection { Name = name, Members = canonical, IsWorkspaceProfile = true };
+                saved.Add(identity);
+                // Retain each set so changing this workspace cannot change a saved
+                // Power Query's attachments or its unqualified SQL default.
+                ConnectionFile.Write(ConnectionsPath, JsonConvert.SerializeObject(saved, Formatting.Indented));
+            }
+            ConnectionFile.Write(WorkspacePath, identity.Name);
+            return true;
         });
     }
 

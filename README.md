@@ -108,17 +108,19 @@ Cupola for Excel is distributed under the [Query Farm Source-Available License
 
 ### Multiple catalogs on Windows
 
-In **Connections**, save each HTTPS VGI connection first. Create a new connection,
-choose **Multiple catalogs**, select the saved connections, and choose the default
-catalog. Save the profile and use it as active. Query Editor, Ask AI, Catalog View,
-worksheet formulas, and Power Query use all of its catalogs in one native session.
+In **Settings → Connections**, save each HTTPS VGI connection first. Under
+**Workspace catalogs**, select the connections to use together, choose the
+**Default catalog**, and select **Apply changes**. Query Editor, Ask AI, and
+Catalog View share that native session; new Power Query tables retain its named
+connection set for refresh. Existing formula defaults remain unchanged.
 Use qualified names such as `open_meteo.main.weather_code_text(0)` and
 `earthquakes.main.recent` in the same SQL query.
 
 Profiles reference up to 16 saved connections with distinct catalog aliases.
 Each member keeps its own endpoint, ATTACH options, and encrypted sign-in session.
-A missing or invalid member fails the whole connection. Remove a member from its
-profiles before deleting or renaming it. Profiles are a Windows desktop feature.
+A missing or invalid member fails the whole connection. Connections used by saved
+profiles or retained workspace query sets cannot be deleted or renamed. Saved
+profiles remain available under advanced controls on Windows.
 Power Query still stores only `Driver={Cupola for Excel};CupolaConnection={Research};`.
 
 Open **Settings** using the gear in the upper-right corner to manage

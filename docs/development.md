@@ -397,10 +397,10 @@ stored securely after a user completes sign-in.
 
 Both hosts use **New connection → Server address → Find catalogs**, followed by
 **Catalog** and **Connection name**. Advanced settings stay collapsed. Windows
-shows a separate **Combine saved connections** action when two individual
-connections are available; it never asks users to choose a connection type.
-New combinations require two members. Existing one-member combinations remain
-editable. Their default connection is available under **Advanced options**.
+offers **Workspace catalogs** to select connections to use together, with a
+**Default catalog** selector and **Apply changes**. It never asks users to choose
+a connection type. Saved profiles remain available under advanced controls;
+existing one-member profiles remain editable.
 Combining connections does not merge or copy data; each saved connection retains
 its own catalog and sign-in. Ordinary connection setup remains the same in Office.
 
@@ -434,3 +434,24 @@ The desktop host displays a native Cupola opening panel while WebView2 starts.
 The workbench and results viewer send `ui.rendered` after their first React paint;
 this hides the panel independently of connection discovery. A 45-second startup
 timeout or failed navigation exposes recovery instead of leaving a blank window.
+
+### Desktop workspace catalogs
+
+Settings → Connections now has a **Workspace catalogs** checklist. Select saved
+connections, choose the **Default catalog**, and select **Apply changes**. Query
+Editor, Ask AI, and Catalog View share that attachment set; Catalog View shows
+every included catalog. The default only selects the catalog for unqualified
+SQL names. Catalog aliases must be distinct, with at most 16 connections.
+
+Saved profiles remain under advanced controls and can populate the workspace
+selection. Existing installations initially use their previous default connection
+or profile. Workspace selection is stored separately from the legacy formula
+default, in `workspace-connection.txt` beside the desktop connection registry.
+Multi-catalog sets are retained as named profiles in that registry so changing
+workspace membership or the default catalog does not alter existing Power Query
+refresh identities. Those retained sets are hidden from profile editing and
+cannot be overwritten or deleted. Connections referenced by retained sets cannot
+be renamed or deleted; they can still be edited or signed out. No credentials
+are stored in workspace selection or workbook connection definitions.
+
+This workspace selection currently applies to the Windows desktop host.

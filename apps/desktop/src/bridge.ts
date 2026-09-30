@@ -10,6 +10,8 @@ export interface DesktopConnection {
   authentication: "anonymous" | "oauth";
   attachOptions?: Record<string, string | number | boolean | null>;
   isDefault?: boolean;
+  isWorkspaceProfile?: boolean;
+  isWorkspaceSelected?: boolean;
   isSignedIn?: boolean;
 }
 
@@ -98,6 +100,7 @@ export const host = {
   copyText: (value: string) => invoke<boolean>("clipboard.write", { value }, 15_000),
   connections: () => invoke<DesktopConnection[]>("connections.list", {}, 15_000),
   saveConnection: (connection: DesktopConnection, makeDefault = false, originalName = "") => invoke<DesktopConnection[]>("connections.save", { connection, makeDefault, originalName }, 15_000),
+  setWorkspace: (members: string[]) => invoke<DesktopConnection[]>("connections.workspace", { members }, 15_000),
   useConnection: (name: string) => invoke<DesktopConnection[]>("connections.use", { name }, 15_000),
   removeConnection: (name: string) => invoke<DesktopConnection[]>("connections.remove", { name }, 15_000),
   discoverCatalogs: (location: string, progress?: (status: string) => void) => invoke<string[]>("connections.catalogs", { location }, 300_000, progress),

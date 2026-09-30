@@ -303,6 +303,9 @@ internal static class WorkbenchBridge
                 ConnectionStore.Save(connection, parameters.Value<bool?>("makeDefault") ?? false, parameters.Value<string>("originalName") ?? "");
                 return Connections();
             }
+            case "connections.workspace":
+                ConnectionStore.SetWorkspace(parameters["members"]?.ToObject<string[]>(Serializer) ?? Array.Empty<string>());
+                return Connections();
             case "connections.use":
                 ConnectionStore.SetDefault(parameters.Value<string>("name") ?? "");
                 return Connections();
@@ -418,6 +421,7 @@ internal static class WorkbenchBridge
     private static object[] Connections()
     {
         var preferred = ConnectionStore.DefaultName();
+        var workspace = ConnectionStore.WorkspaceName();
         var saved = ConnectionStore.List();
         return saved.Select(connection =>
         {
@@ -428,7 +432,8 @@ internal static class WorkbenchBridge
             {
                 connection.Name, Catalog = members.FirstOrDefault()?.Catalog ?? connection.Catalog,
                 Catalogs = members.Select(member => member.Catalog).ToArray(), connection.Members,
-                connection.Location, connection.Authentication, connection.AttachOptions,
+                connection.Location, connection.Authentication, connection.AttachOptions, connection.IsWorkspaceProfile,
+                IsWorkspaceSelected = string.Equals(connection.Name, workspace, StringComparison.OrdinalIgnoreCase),
                 IsDefault = string.Equals(connection.Name, preferred, StringComparison.OrdinalIgnoreCase),
                 IsSignedIn = members.Any(member => member.Authentication == "oauth") && members.All(member => member.Authentication != "oauth" || OAuthClient.IsSignedIn(member))
             };

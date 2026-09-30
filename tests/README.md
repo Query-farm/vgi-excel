@@ -258,9 +258,9 @@ that connection errors appear inline without duplicate global banners.
 
 
 The business-user connection flow is covered by `tests/ui/profiles.spec.ts`: no
-type selector in ordinary setup, no combine action for zero/one saved source,
-separate combination creation and editing, two-member minimum for new groups,
-compatibility with existing one-member groups, and reset back to a new connection.
+type selector in ordinary setup, persistent workspace membership and default
+catalog selection, shared catalog browsing and query execution, compatibility with
+existing one-member profiles, and reset back to a new connection.
 Narrow-layout checks cover 360×480 desktop and 300-pixel Office panes.
 
 Build **20260926.2** received a UI/UX review of the business-user flow and final
@@ -345,6 +345,13 @@ result-window appearance, and connection/draft restoration without carrying
 OAuth tokens into a new pane session. Track the remaining real Excel sign-in,
 worksheet-function, and save/reopen checks in
 [Office release qualification](../docs/office-release-qualification.md).
+
+Workspace regression coverage lives in `tests/ui/profiles.spec.ts`,
+`apps/desktop/src/workspace.test.ts`, and the native `WorkspaceTests`. It checks
+multiple visible catalogs, the shared query connection, default catalog changes,
+legacy formula defaults, stable Power Query attachment identities, invalid
+selection, and narrow-width connection controls. Run `tests\run-windows.ps1`
+with `-SkipWebBuild` after copying a desktop bundle built on macOS.
 
 ## GitHub-hosted release checks
 

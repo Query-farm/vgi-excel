@@ -73,7 +73,7 @@ test("desktop discovers catalogs without saving and preserves manual names and e
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.locator(".connection-status")).toContainText("Connection saved");
   expect(await page.evaluate(() => (window as any).__saved.length)).toBe(2);
-  await page.getByRole("button", { name: /Saved · active/ }).click();
+  await page.getByRole("button", { name: /^Saved / }).click();
   await page.getByRole("button", { name: "Find catalogs" }).click();
   await expect(page.getByLabel("Connection name", { exact: true })).toHaveValue("Saved");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

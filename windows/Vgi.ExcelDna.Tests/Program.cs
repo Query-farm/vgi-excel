@@ -41,6 +41,7 @@ internal static class Program
             AccountingDecimalTests();
             RibbonTests();
             WebWorkbenchTests();
+            WorkspaceTests();
             Console.WriteLine("PASS: desktop connection and agent policy tests");
             return 0;
         }
@@ -769,6 +770,45 @@ internal static class Program
         Throws<InvalidOperationException>(() => broken.Query("one", () => "setup", "ok", null), "failed attachment propagates");
         Throws<InvalidOperationException>(() => broken.Query("one", () => "setup", "ok", null), "failed attachment can be retried by a new request");
         Equal(2, attempts, "failed factory does not poison entry");
+    }
+
+    private static void WorkspaceTests()
+    {
+        var sales = new VgiConnection { Name = "workspace-sales", Catalog = "sales", Location = "https://sales.example.test" };
+        var inventory = new VgiConnection { Name = "workspace-inventory", Catalog = "inventory", Location = "https://inventory.example.test" };
+        ConnectionStore.Save(sales);
+        ConnectionStore.Save(inventory, false);
+        Equal(sales.Name, ConnectionStore.WorkspaceName(), "existing default initializes workspace");
+        var bridgeResult = WorkbenchBridge.Invoke("connections.workspace", new JObject { ["members"] = new JArray(sales.Name, inventory.Name) }).GetAwaiter().GetResult();
+        var listed = JArray.FromObject(bridgeResult!);
+        Equal(1, listed.Count(item => item.Value<bool>("IsWorkspaceSelected")), "bridge exposes one shared workspace selection");
+        Equal(sales.Name, listed.Single(item => item.Value<bool>("IsDefault")).Value<string>("Name"), "bridge preserves the legacy default separately");
+        var combined = ConnectionStore.Resolve(ConnectionStore.WorkspaceName());
+        Equal(true, combined.IsWorkspaceProfile, "workspace creates a retained connection set");
+        Equal(2, ConnectionStore.ResolveAttachments(combined).Count, "workspace attaches both catalogs");
+        Equal(sales.Name, ConnectionStore.DefaultName(), "workspace selection preserves legacy formula default");
+        var oldName = combined.Name;
+        ConnectionStore.SetWorkspace(new[] { inventory.Name, sales.Name });
+        Equal(inventory.Name, ConnectionStore.Resolve(ConnectionStore.WorkspaceName()).Members[0], "workspace default changes unqualified SQL catalog");
+        Equal(sales.Name, ConnectionStore.Resolve(oldName).Members[0], "existing Power Query identity keeps original default");
+        ConnectionStore.SetWorkspace(new[] { sales.Name.ToUpperInvariant(), inventory.Name });
+        Equal(oldName, ConnectionStore.WorkspaceName(), "same catalog set reuses its identity");
+        ConnectionStore.SetWorkspace(new[] { inventory.Name });
+        Equal(inventory.Name, ConnectionStore.WorkspaceName(), "single-catalog workspace uses saved identity");
+        Equal(2, ConnectionStore.ResolveAttachments(ConnectionStore.Resolve(oldName)).Count, "removing a workspace catalog preserves saved refresh attachments");
+        Throws<ArgumentException>(() => ConnectionStore.SetWorkspace(Array.Empty<string>()), "empty workspace rejected");
+        Throws<InvalidOperationException>(() => ConnectionStore.SetWorkspace(new[] { "missing" }), "missing workspace catalog rejected");
+        Throws<ArgumentException>(() => ConnectionStore.SetWorkspace(new[] { inventory.Name, inventory.Name }), "duplicate workspace catalog rejected");
+        Throws<ArgumentException>(() => ConnectionStore.SetWorkspace(new[] { oldName }), "nested workspace profile rejected");
+        Equal(inventory.Name, ConnectionStore.WorkspaceName(), "failed update preserves workspace");
+        Throws<ArgumentException>(() => ConnectionStore.Save(new VgiConnection { Name = oldName, Catalog = "replacement", Location = "https://example.test" }, false), "retained query set cannot be overwritten");
+        Throws<InvalidOperationException>(() => ConnectionStore.Remove(oldName), "retained query set cannot be deleted");
+        var conflicting = new VgiConnection { Name = "workspace-conflict", Catalog = "inventory", Location = "https://other.example.test" };
+        ConnectionStore.Save(conflicting, false);
+        Throws<ArgumentException>(() => ConnectionStore.SetWorkspace(new[] { inventory.Name, conflicting.Name }), "ambiguous catalog aliases rejected");
+        var setup = HaybarnClient.BuildSessionScript(ConnectionStore.ResolveAttachments(ConnectionStore.Resolve(oldName)), "SELECT 1", timeZone: "UTC");
+        True(setup.Contains("AS \"sales\""), "workspace setup attaches sales");
+        True(setup.Contains("AS \"inventory\""), "workspace setup attaches inventory");
     }
 
     private static void ProfileTests()
