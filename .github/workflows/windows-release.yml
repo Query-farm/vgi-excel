@@ -53,7 +53,7 @@ jobs:
           retention-days: 1
   build:
     if: inputs.mode != 'signing-test'
-    needs: [web, native-input]
+    needs: native-input
     runs-on: windows-2022
     timeout-minutes: 120
     env:
@@ -158,7 +158,7 @@ jobs:
           "Azure OIDC signing passed: $($signature.Status), $($signature.SignerCertificate.Subject), timestamp present." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
   sign:
     if: inputs.mode == 'signed-draft'
-    needs: build
+    needs: [web, build]
     runs-on: windows-2022
     timeout-minutes: 30
     environment: cupola-release

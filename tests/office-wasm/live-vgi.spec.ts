@@ -63,7 +63,11 @@ test("self-hosted Haybarn WASM attaches an HTTPS Catalog and executes SQL", asyn
   await page.getByRole("button", { name: "Run", exact: true }).click();
   await expect(results).toContainText("123");
   await expect(popup.getByRole("table")).toContainText("84");
-  await popup.getByRole("button", { name: "Close", exact: true }).click({ noWaitAfter: true });
+  // Chromium can destroy the popup before acknowledging the click. Only accept
+  // that specific error when the expected close actually happened.
+  await popup.getByRole("button", { name: "Close", exact: true }).click().catch((error: Error) => {
+    if (!popup.isClosed() || !error.message.includes("Target page, context or browser has been closed")) throw error;
+  });
   await expect.poll(() => popup.isClosed()).toBe(true);
 
   await page.getByRole("button", { name: "Hide results", exact: true }).click();
