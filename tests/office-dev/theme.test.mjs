@@ -2,9 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "vite";
 import { webkit, expect } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { resolve } from "node:path";
 process.env.VITEST = "1";
 test("Office theme overrides macOS and updates without losing state", async () => {
- const server=await createServer({root:"apps/office",configFile:"apps/office/vite.config.ts",server:{host:"127.0.0.1",port:0,open:false}});
+ const cacheDir=await mkdtemp(resolve("node_modules/.cupola-office-theme-"));
+ const server=await createServer({root:"apps/office",configFile:"apps/office/vite.config.ts",cacheDir,server:{host:"127.0.0.1",port:0,open:false}});
  const browser=await webkit.launch();
  try {
   await server.listen();
@@ -48,5 +51,5 @@ test("Office theme overrides macOS and updates without losing state", async () =
   assert.equal(await fresh.evaluate(() => sessionStorage.getItem("vgi.excel.oauth.https://weather.example")), null);
   assert.equal(await fresh.evaluate(() => JSON.stringify(localStorage).includes("test-only")), false);
   await fresh.close();
- }finally{await browser.close();await server.close();}
+ }finally{await browser.close();await server.close();await rm(cacheDir,{recursive:true,force:true});}
 });

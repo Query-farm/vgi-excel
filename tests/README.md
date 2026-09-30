@@ -40,7 +40,9 @@ CORS, OAuth callback handling, and exclusion of private files. Run
 after deployment to verify the public manifest and assets, load the real Office
 SDK, and exercise the WASM integration against the hosted build. Hosted tests
 block Sentry delivery. `npm run test:office-dev` runs the WebKit development tests
-sequentially because their Vite servers share an optimizer cache.
+sequentially with isolated, empty Vite caches. The HTTP-only fixture disables
+background dependency scanning, preloading, and file watching so it shuts down
+cleanly on Linux. Browser fixtures exercise normal dependency optimization.
 
 ## Live Microsoft 365 / Haybarn-WASM test
 

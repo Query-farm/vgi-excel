@@ -26,7 +26,9 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:ui
       - run: npm run test:office-wasm
-      - run: npm run test:office-dev
+      - name: Validate Office development server
+        timeout-minutes: 3
+        run: npm run test:office-dev
       - run: npx --yes office-addin-manifest@3.0.1 validate apps/office/public/manifest.xml
       - name: Publish verified static files and activate Worker
         env:
