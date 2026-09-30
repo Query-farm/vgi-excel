@@ -2,7 +2,7 @@
   "name": "@query-farm/vgi-excel",
   "private": true,
   "version": "0.5.0",
-  "cupolaBuild": "20260927.17",
+  "cupolaBuild": "20260930.0",
   "workspaces": [
     "apps/office",
     "apps/desktop",
