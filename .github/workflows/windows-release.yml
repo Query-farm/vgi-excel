@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: cupola-windows-release
+  group: cupola-windows-${{ inputs.mode == 'signing-test' && 'signing-test' || 'release' }}
   cancel-in-progress: false
 jobs:
   web:
