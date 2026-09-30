@@ -213,3 +213,10 @@ is shown as a partial success with instructions to finish loading the existing
 query, avoiding duplicate creation. There is no automatic static fallback.
 Explicit static replacements and Microsoft 365 browser insertions remain static
 and are labeled accordingly.
+
+### GitHub release builds
+
+Use **Actions → Cupola for Excel Windows release → Run workflow → signed-draft**
+to build and sign a release candidate without a local Azure login. The workflow
+creates a draft release for Windows/Excel qualification before publication.
+See [GitHub release instructions](docs/github-releases.md).

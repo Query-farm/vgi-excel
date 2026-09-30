@@ -1,5 +1,7 @@
 # Azure signing for Cupola
 
+For the configured GitHub-hosted release process, see [GitHub releases](github-releases.md).
+
 The release publisher accepts `-AzureSigningConfigPath` as an alternative to
 `-CertificateThumbprint`. Azure signing is prepared but cannot be qualified until
 the organization's Public Trust identity and certificate profile are approved.
@@ -13,7 +15,8 @@ No test in the default Windows suite sends a signing request.
    Entra app registration and add a federated credential for GitHub's environment
    `cupola-release` in the actual repository. Use issuer
    `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`,
-   and subject `repo:OWNER/REPOSITORY:environment:cupola-release`.
+   and subject the repository's actual immutable subject (including owner/repository IDs); see
+   [GitHub releases](github-releases.md).
 3. Create that GitHub environment and restrict it to approved release branches
    and reviewers. Configure the dedicated Windows/Excel runner; it needs Azure
    CLI, .NET 8 x64 runtime, and the existing Windows build prerequisites.
@@ -69,7 +72,7 @@ For GitHub Actions, configure these in the `cupola-release` environment:
 
 The IDs are identifiers, not access credentials; the login action receives them
 from protected environment secrets. No client secret is required. Run the Windows
-release workflow with `production=true` and `signing_provider=azure`. It validates
+release workflow with mode **signed-draft**. It validates
 the unsigned candidate first, logs in with GitHub OIDC, then signs the production
 package through the resulting Azure CLI identity. Other credential fallbacks,
 including browser prompts, are disabled during signing.
