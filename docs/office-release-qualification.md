@@ -17,8 +17,12 @@ with installation manifest version 1.0.0.1 at `/manifest.xml`.
   session-credential reuse with a mocked protected service, and live Haybarn VGI
   queries with cancellation and result windows. No real protected-service login
   or Excel workbook writes are established by these browser tests.
-- Automated deployment is defined in `.github/workflows/office-deploy.yml`.
-  Its first GitHub run still requires the `CLOUDFLARE_API_TOKEN` secret.
+- [GitHub run 36781220557](https://github.com/Query-farm/vgi-excel/actions/runs/36781220557)
+  passed dependency installation, type checks, unit/hosting/UI tests, production
+  builds, live WASM tests, the Linux WebKit development suite, and Microsoft
+  manifest validation. Publication stopped at the explicit missing
+  `CLOUDFLARE_API_TOKEN` check. CI publication and its post-deployment checks remain
+  unverified until that secret is configured and the workflow succeeds.
 
 The live Excel checks below remain required for this production origin before
 broad distribution. Hosting does not install the add-in into a Microsoft 365
