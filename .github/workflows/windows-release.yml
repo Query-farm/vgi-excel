@@ -1,109 +1,215 @@
-name: Windows release candidate
+name: Cupola for Excel Windows release
 on:
   workflow_dispatch:
     inputs:
-      production:
-        description: Require timestamped production signatures
-        type: boolean
-        default: false
-      signing_provider:
-        description: Production signing provider
+      mode:
+        description: Build a candidate, create a signed draft release, or verify Azure signing
         type: choice
-        options: [azure, certificate-store]
-        default: azure
+        options: [signed-draft, candidate, signing-test]
+        default: signed-draft
 permissions:
   contents: read
-  id-token: write
 concurrency:
-  group: cupola-windows-release
+  group: cupola-windows-${{ inputs.mode == 'signing-test' && 'signing-test' || 'release' }}
   cancel-in-progress: false
 jobs:
-  package:
-    # Dedicated Windows/Excel test runner, never a user's working desktop.
-    runs-on: [self-hosted, Windows, X64, cupola-release]
-    environment: cupola-release
+  web:
+    if: inputs.mode != 'signing-test'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
-      VGI_EXCEL_TELEMETRY: '0'
       VITE_SENTRY_ENABLED: '0'
-      CUPOLA_PRODUCTION: ${{ inputs.production }}
-      CUPOLA_VGI_EXTENSION_PATH: ${{ vars.CUPOLA_VGI_EXTENSION_PATH }}
-      CUPOLA_SIGNING_PROVIDER: ${{ inputs.signing_provider }}
-      CUPOLA_AZURE_ENDPOINT: ${{ vars.CUPOLA_AZURE_ENDPOINT }}
-      CUPOLA_AZURE_ACCOUNT: ${{ vars.CUPOLA_AZURE_ACCOUNT }}
-      CUPOLA_AZURE_PROFILE: ${{ vars.CUPOLA_AZURE_PROFILE }}
-      CUPOLA_AZURE_SUBJECT: ${{ vars.CUPOLA_AZURE_SUBJECT }}
-      CUPOLA_SIGNING_THUMBPRINT: ${{ vars.CUPOLA_SIGNING_THUMBPRINT }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
-      - name: Validate web clients
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - run: npm run test:office-wasm
+  native-input:
+    if: inputs.mode != 'signing-test'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: cupola-release
+    permissions:
+      # GitHub requires write access to see draft release assets.
+      contents: write
+    steps:
+      - name: Download approved VGI extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download cupola-native-inputs-v1 --repo "$GITHUB_REPOSITORY" --pattern vgi.duckdb_extension --dir approved-native
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cupola-approved-native
+          path: approved-native/vgi.duckdb_extension
+          if-no-files-found: error
+          retention-days: 1
+  build:
+    if: inputs.mode != 'signing-test'
+    needs: native-input
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      VGI_EXCEL_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '8.0.x'
+      - name: Initialize x64 build tools
+        shell: powershell
+        run: ./windows/ci-developer-shell.ps1
+      - name: Restore pinned native inputs
+        id: native
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: artifacts/native-inputs
+          key: cupola-native-windows-2022-${{ hashFiles('windows/native-inputs.lock.json', 'windows/odbc/cupola.patch', 'windows/build-native-inputs.py') }}
+      - name: Download approved VGI extension
+        if: steps.native.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cupola-approved-native
+          path: artifacts/approved-native
+      - name: Build pinned native sources
+        if: steps.native.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          python windows/build-native-inputs.py --vgi-extension artifacts/approved-native/vgi.duckdb_extension
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build production desktop assets
         shell: powershell
         run: |
           npm ci
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run check
+          npm run build:desktop
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm test
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npx playwright install chromium
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run test:ui
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run test:office-wasm
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Build pinned native inputs
-        shell: powershell
-        run: |
-          # Runner service must start with the x64 VS Developer environment.
-          python windows/build-native-inputs.py --vgi-extension "$env:CUPOLA_VGI_EXTENSION_PATH"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Validate Windows hosts and package
+      - name: Validate Windows package without Excel
         shell: powershell
         run: |
           $native = Join-Path $PWD 'artifacts/native-inputs'
-          & tests/run-windows.ps1 -HaybarnPath "$native/haybarn.exe" -VgiExtensionPath "$native/vgi.duckdb_extension" -OdbcDriverPath "$native/haybarn_odbc.dll" -SkipWebBuild
+          & tests/run-windows.ps1 -HaybarnPath "$native/haybarn.exe" -VgiExtensionPath "$native/vgi.duckdb_extension" -OdbcDriverPath "$native/haybarn_odbc.dll" -SkipWebBuild -SkipExcel
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Azure login for signing
-        if: inputs.production && inputs.signing_provider == 'azure'
-        uses: Azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
+          'Excel, interactive Credential Manager, and installation lifecycle checks must pass on a Windows/Excel machine before publishing.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - name: Upload inputs for signing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cupola-build-inputs
+          path: |
+            apps/desktop/dist/
+            artifacts/native-inputs/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload unsigned candidate
+        if: inputs.mode == 'candidate'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cupola-windows-unsigned-candidate
+          path: |
+            artifacts/deployment/
+            artifacts/xll/
+          if-no-files-found: error
+          retention-days: 14
+  signing-test:
+    if: inputs.mode == 'signing-test'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    environment: cupola-release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CUPOLA_AZURE_ENDPOINT: ${{ vars.CUPOLA_AZURE_ENDPOINT }}
+      CUPOLA_AZURE_ACCOUNT: ${{ vars.CUPOLA_AZURE_ACCOUNT }}
+      CUPOLA_AZURE_PROFILE: ${{ vars.CUPOLA_AZURE_PROFILE }}
+      CUPOLA_AZURE_SUBJECT: ${{ vars.CUPOLA_AZURE_SUBJECT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '8.0.x'
+      - uses: Azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
         with:
           client-id: ${{ secrets.CUPOLA_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.CUPOLA_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.CUPOLA_AZURE_SUBSCRIPTION_ID }}
-      - name: Publish signed production package
-        if: inputs.production
+          allow-no-subscriptions: true
+      - name: Sign and verify disposable test file
         shell: powershell
         run: |
+          $configPath = Join-Path $env:RUNNER_TEMP 'cupola-signing.json'
+          ./windows/ci-signing-config.ps1 -Path $configPath
+          . ./windows/signing/azure.ps1
+          $payload = Join-Path $env:RUNNER_TEMP 'Cupola-Signing-Test.ps1'
+          '# Disposable CI signing verification; not a release.' | Set-Content $payload -Encoding UTF8
+          Invoke-CupolaAzureSign $payload (Read-CupolaAzureSigningConfig $configPath)
+          $signature = Get-AuthenticodeSignature $payload
+          "Azure OIDC signing passed: $($signature.Status), $($signature.SignerCertificate.Subject), timestamp present." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+  sign:
+    if: inputs.mode == 'signed-draft'
+    needs: [web, build]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    environment: cupola-release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VGI_EXCEL_TELEMETRY: '0'
+      CUPOLA_AZURE_ENDPOINT: ${{ vars.CUPOLA_AZURE_ENDPOINT }}
+      CUPOLA_AZURE_ACCOUNT: ${{ vars.CUPOLA_AZURE_ACCOUNT }}
+      CUPOLA_AZURE_PROFILE: ${{ vars.CUPOLA_AZURE_PROFILE }}
+      CUPOLA_AZURE_SUBJECT: ${{ vars.CUPOLA_AZURE_SUBJECT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cupola-build-inputs
+          path: .
+      - name: Initialize x64 build tools
+        shell: powershell
+        run: ./windows/ci-developer-shell.ps1
+      - uses: Azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
+        with:
+          client-id: ${{ secrets.CUPOLA_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.CUPOLA_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.CUPOLA_AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
+      - name: Package and verify signed release
+        shell: powershell
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP 'cupola-signing.json'
+          ./windows/ci-signing-config.ps1 -Path $config
           $native = Join-Path $PWD 'artifacts/native-inputs'
-          $signing = @{}
-          if ($env:CUPOLA_SIGNING_PROVIDER -eq 'azure') {
-            Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
-            Install-Module ArtifactSigning -RequiredVersion 0.1.20 -Scope CurrentUser -Force
-            $config = Join-Path $env:RUNNER_TEMP 'cupola-azure-signing.json'
-            @{
-              Endpoint = $env:CUPOLA_AZURE_ENDPOINT
-              CodeSigningAccountName = $env:CUPOLA_AZURE_ACCOUNT
-              CertificateProfileName = $env:CUPOLA_AZURE_PROFILE
-              ExpectedSubject = $env:CUPOLA_AZURE_SUBJECT
-            } | ConvertTo-Json | Set-Content $config -Encoding UTF8
-            $signing.AzureSigningConfigPath = $config
-          } else {
-            $signing.CertificateThumbprint = $env:CUPOLA_SIGNING_THUMBPRINT
-          }
-          Remove-Item Env:VITE_SENTRY_ENABLED
-          npm run build:desktop
+          & windows/publish.ps1 -HaybarnPath "$native/haybarn.exe" -VgiExtensionPath "$native/vgi.duckdb_extension" -OdbcDriverPath "$native/haybarn_odbc.dll" -SkipWebBuild -BuildMsi -Production -AzureSigningConfigPath $config
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & windows/publish.ps1 -HaybarnPath "$native/haybarn.exe" -VgiExtensionPath "$native/vgi.duckdb_extension" -OdbcDriverPath "$native/haybarn_odbc.dll" -SkipWebBuild -BuildMsi -Production @signing
+          ./tests/packaging/msi-smoke.ps1 -MsiPath artifacts/deployment/CupolaForExcel.msi
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./tests/packaging/deployment-contract.ps1 -MsiPath artifacts/deployment/CupolaForExcel.msi
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Create draft GitHub release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./windows/ci-draft-release.ps1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: cupola-windows-candidate
-          path: |
-            artifacts/deployment/
-            artifacts/native-inputs/provenance.json
+          name: cupola-windows-signed-release
+          path: artifacts/release/
           if-no-files-found: error
+          retention-days: 30

@@ -154,6 +154,12 @@ companion service runs in the background.
 
 ### Power Query and the ODBC fork
 
+Desktop AI results include a short descriptive name suggested by the model in the
+`run_sql` call. **Load into Excel** shows that name for confirmation and uses it
+for the Power Query; **Edit query** carries it into the Query Editor tab. Names
+are normalized for Excel, with `AI query` as the fallback for missing names.
+Excel resolves duplicate names when creating the query and worksheet.
+
 The desktop Query Editor's **Power Query** button creates an M query using this
 DSN-less contract:
 

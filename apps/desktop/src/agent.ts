@@ -1,5 +1,5 @@
 import { recordAITool } from "@query-farm/vgi-excel-core";
-import { CLARIFICATION_TOOL, RESULT_SCOPE_SCHEMA, clarificationInput, resultScope, type AgentClarification, type AgentResultCard } from "@query-farm/vgi-excel-core";
+import { agentQueryName, CLARIFICATION_TOOL, RESULT_SCOPE_SCHEMA, clarificationInput, resultScope, type AgentClarification, type AgentResultCard } from "@query-farm/vgi-excel-core";
 import { agentRoundSeparator, appendAgentRoundText, assertAgentReadOnlySql, buildExcelAgentSystemPrompt, excelWorksheetName, type AgentCatalogObject, type QueryResult } from "@query-farm/vgi-excel-core";
 import { host, type DesktopConnection } from "./bridge";
 import { sanitizeConversation } from "./agent-history";
@@ -32,7 +32,7 @@ export interface WorkbookWriteAction {
 }
 
 const BASE_TOOLS = [
-  { name: "run_sql", description: "Execute one read-only SQL query. Returns columns, the first 20 rows, total row count, and a result ID for paging.", input_schema: { type: "object", additionalProperties: false, properties: { sql: { type: "string" }, scope: RESULT_SCOPE_SCHEMA }, required: ["sql"] } },
+  { name: "run_sql", description: "Execute one read-only SQL query. Returns columns, the first 20 rows, total row count, and a result ID for paging.", input_schema: { type: "object", additionalProperties: false, properties: { sql: { type: "string" }, query_name: { type: "string", maxLength: 31, description: "A concise business-language name describing this result, used when loading it as an Excel Power Query or opening it in the Query Editor. For example: Monthly sales by region. Avoid generic names like AI query, SQL jargon, and unnecessary customer identifiers." }, scope: RESULT_SCOPE_SCHEMA }, required: ["sql", "query_name"] } },
   { name: "read_query_results", description: "Read more rows from an earlier run_sql result without executing it again.", input_schema: { type: "object", additionalProperties: false, properties: { result_id: { type: "string" }, offset: { type: "number" }, limit: { type: "number" } }, required: ["result_id"] } },
   { name: "list_tables", description: "List catalogs, schemas, tables, and views available through the selected VGI connection.", input_schema: { type: "object", additionalProperties: false, properties: {} } },
   { name: "list_functions", description: "Inspect scalar, macro, and table-function signatures before calling them. Filter by catalog, schema, or function name when possible.", input_schema: { type: "object", additionalProperties: false, properties: { catalog: { type: "string" }, schema: { type: "string" }, name: { type: "string", description: "Exact or partial function name." } } } },
@@ -192,7 +192,7 @@ export class AgentSession {
       const id = crypto.randomUUID();
       this.results.set(id, { result, sql: String(input.sql), connection });
       callbacks.onResult(result);
-      callbacks.onQueryResult?.({ id, sql: String(input.sql), result, connection, catalog: "", scope: resultScope(input.scope) });
+      callbacks.onQueryResult?.({ id, queryName: agentQueryName(input.query_name), sql: String(input.sql), result, connection, catalog: "", scope: resultScope(input.scope) });
       return JSON.stringify({ result_id: id, columns: result.columns, rows: result.rows.slice(0, 20), row_count: result.rowCount, truncated: result.rows.length > 20 || result.truncated });
     }
     if (name === "read_query_results") {

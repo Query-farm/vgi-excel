@@ -1,33 +1,38 @@
 # Azure signing for Cupola
 
 The release publisher accepts `-AzureSigningConfigPath` as an alternative to
-`-CertificateThumbprint`. Azure signing is prepared but cannot be qualified until
-the organization's Public Trust identity and certificate profile are approved.
+`-CertificateThumbprint`. Workstation signing was verified on Europa on
+2026-09-30 using the approved Public Trust profile `cupola-production`.
 No test in the default Windows suite sends a signing request.
 
-## While identity approval is pending
+## GitHub Actions signing
 
-1. Record the Artifact Signing account name, subscription ID, tenant ID, and
-   region. Tags are optional organizational metadata and do not configure signing.
-2. Prepare a dedicated Windows release identity. For GitHub Actions, create an
-   Entra app registration and add a federated credential for GitHub's environment
-   `cupola-release` in the actual repository. Use issuer
-   `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`,
-   and subject `repo:OWNER/REPOSITORY:environment:cupola-release`.
-3. Create that GitHub environment and restrict it to approved release branches
-   and reviewers. Configure the dedicated Windows/Excel runner; it needs Azure
-   CLI, .NET 8 x64 runtime, and the existing Windows build prerequisites.
-4. Install the pinned Microsoft signing module in the build user's context:
+The configured release workflow uses the user-assigned managed identity
+`cupola-github-releases` and GitHub OIDC. It does not use a client secret or the
+workstation user's Azure session. The identity's only role is Artifact Signing
+Certificate Profile Signer on `cupola-production`. See [GitHub releases](github-releases.md)
+for workflow modes, environment configuration, and the exact immutable subject.
 
-   ```powershell
-   Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force
-   Install-Module ArtifactSigning -RequiredVersion 0.1.20 -Scope CurrentUser -Force
-   ```
+Run **Actions → Cupola for Excel Windows release → Run workflow**, selecting
+**signing-test** to verify authentication or **signed-draft** to build a release.
+The latter validates the unsigned candidate before signing and creates a draft
+for real Excel and installation qualification. It never publishes automatically.
+The complete hosted build and signing path passed on 2026-09-30 and created
+signed draft `v0.5.0-20260930.0`; all 16 Authenticode payloads passed publisher
+and timestamp verification.
 
-   The module installs its signing-tool dependencies on first use, requiring
-   access to its package feeds. It signs PE files, MSI files, and PowerShell
-   scripts. These tools are build dependencies and are not installed on users'
-   desktops. It does not need a downloadable private key or USB token.
+## Workstation prerequisites
+
+Europa has Azure CLI, .NET 8 x64, and the pinned Microsoft signing module:
+
+```powershell
+Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force
+Install-Module ArtifactSigning -RequiredVersion 0.1.20 -Scope CurrentUser -Force
+```
+
+The module downloads its signing-tool dependencies on first use. These are build
+tools, not customer prerequisites; no downloadable private key or USB token is
+needed.
 
 ## Once approved
 
@@ -59,7 +64,7 @@ For GitHub Actions, configure these in the `cupola-release` environment:
 
 | Setting | Type | Value |
 |---|---|---|
-| `CUPOLA_AZURE_CLIENT_ID` | Secret | Release app's client ID |
+| `CUPOLA_AZURE_CLIENT_ID` | Secret | Release managed identity's client ID |
 | `CUPOLA_AZURE_TENANT_ID` | Secret | Entra tenant ID |
 | `CUPOLA_AZURE_SUBSCRIPTION_ID` | Secret | Signing subscription ID |
 | `CUPOLA_AZURE_ENDPOINT` | Variable | Exact regional HTTPS signing endpoint |
@@ -69,7 +74,7 @@ For GitHub Actions, configure these in the `cupola-release` environment:
 
 The IDs are identifiers, not access credentials; the login action receives them
 from protected environment secrets. No client secret is required. Run the Windows
-release workflow with `production=true` and `signing_provider=azure`. It validates
+release workflow with mode **signed-draft**. It validates
 the unsigned candidate first, logs in with GitHub OIDC, then signs the production
 package through the resulting Azure CLI identity. Other credential fallbacks,
 including browser prompts, are disabled during signing.
@@ -97,3 +102,30 @@ Azure CLI has also been installed. Open a new terminal after CLI installation so
 `az` is on PATH. No Azure sign-in, signing request, role assignment, or cloud
 resource change was performed during this preparation. Account/region and the
 approved profile subject still need to be supplied.
+
+## Live workstation verification — 2026-09-30
+
+The `queryfarmsigning` account in East US and its `cupola-production` Public Trust
+profile are active. The workstation user has the Artifact Signing Certificate
+Profile Signer role. A disposable PowerShell script was signed through Cupola's
+existing signing adapter with ArtifactSigning 0.1.20. Windows reported a valid
+Authenticode signature, the exact publisher subject below, and a Microsoft
+RFC3161 timestamp:
+
+```text
+CN=Query Farm LLC, O=Query Farm LLC, L=Glen Allen, S=Virginia, C=US
+```
+
+Europa's configuration is saved outside source control at
+`C:\Users\rusty\vgi-excel-cupola-test\artifacts\azure-signing.json`, using
+`https://eus.codesigning.azure.net/`. No credentials are stored in this file.
+
+The sign-in completed in the interactive Windows session. Signing from SSH
+could list the account but could not acquire its Azure CLI credentials; running
+the same test in the signed-in interactive session succeeded. Use that Windows
+session for workstation releases. GitHub OIDC signing uses its own release environment and managed identity;
+it does not inherit this workstation session.
+
+This was a disposable signing test, not a signed release or installation. The
+clean-machine trust and installation lifecycle gates still apply to the first
+production package.

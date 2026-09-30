@@ -1,3 +1,4 @@
+import { agentQueryName } from "@query-farm/vgi-excel-core";
 import { Fragment, type ReactNode } from "react";
 import type { AgentTranscriptPart } from "@query-farm/vgi-excel-core";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -37,7 +38,7 @@ export function AgentResult({ value, disabled, openQuery, load, loadLabel, hideL
   const [busy, setBusy] = useState(false);
   const incomplete = !!value.result.truncated || value.result.rows.length < value.result.rowCount;
   async function insert(): Promise<void> {
-    if (!window.confirm(loadLabel === "Load into Excel" ? "Create a refreshable Excel table from this query? This reruns the query using the saved connection." : `Insert ${value.result.rows.length.toLocaleString()} loaded rows as a static Excel table at the current selection?`)) return;
+    if (!window.confirm(loadLabel === "Load into Excel" ? `Create a refreshable Excel table named “${agentQueryName(value.queryName)}”? This reruns the query using the saved connection. Excel will add a suffix if the name is already in use.` : `Insert ${value.result.rows.length.toLocaleString()} loaded rows as a static Excel table at the current selection?`)) return;
     setBusy(true); setStatus("");
     try { const message = await load(value); setStatus(message || (loadLabel === "Load into Excel" ? "Excel load requested. Check Queries & Connections for refresh status." : "Snapshot inserted.")); }
     catch (error) { setStatus(error instanceof Error ? error.message : "Could not insert the result. Try again."); }

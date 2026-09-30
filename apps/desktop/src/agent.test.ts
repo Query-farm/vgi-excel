@@ -66,6 +66,25 @@ function callbacks() {
 const CONNECTION = { name: "weather", catalog: "open_meteo", location: "https://weather.test/vgi", authentication: "anonymous" as const };
 
 describe("desktop agent", () => {
+  it.each([
+    ["Monthly sales by region", "Monthly sales by region"],
+    ["  Sales / region  ", "Sales - region"],
+    ["A".repeat(60), "A".repeat(31)],
+    ["   ", "AI query"],
+    [undefined, "AI query"],
+    [42, "AI query"],
+  ])("carries the normalized AI query name %j with its result", async (queryName, expected) => {
+    installHost({ result: { columns: [{ name: "value", type: "INTEGER" }], rows: [[42]], rowCount: 1 } });
+    const responses = [toolTurn("named", "run_sql", JSON.stringify({ sql: "SELECT 42 AS value", query_name: queryName })), textTurn()];
+    const bodies: any[] = [];
+    globalThis.fetch = vi.fn(async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return responses.shift()!; }) as typeof fetch;
+    const { AgentSession } = await import("./agent");
+    const events = { ...callbacks(), onQueryResult: vi.fn() };
+    await new AgentSession().run("key", "model", "Show sales", CONNECTION, events, new AbortController().signal);
+    expect(events.onQueryResult).toHaveBeenCalledWith(expect.objectContaining({ queryName: expected, sql: "SELECT 42 AS value", connection: "weather", toolCallId: "named" }));
+    expect(bodies[0].tools.find((tool: any) => tool.name === "run_sql").input_schema.required).toContain("query_name");
+  });
+
   it("keeps the rendered cache prefix stable across tool rounds and follow-up questions", async () => {
     const posted = installHost({ result: { columns: [], rows: [], rowCount: 0 } });
     const bodies: any[] = [];

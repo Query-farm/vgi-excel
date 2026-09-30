@@ -345,3 +345,11 @@ result-window appearance, and connection/draft restoration without carrying
 OAuth tokens into a new pane session. Track the remaining real Excel sign-in,
 worksheet-function, and save/reopen checks in
 [Office release qualification](../docs/office-release-qualification.md).
+
+## GitHub-hosted release checks
+
+The release workflow runs all web checks and the Windows suite with `-SkipExcel`,
+then validates signed MSI contents. Its `signing-test` mode performs a real Azure
+OIDC signing request on a disposable file; the default Windows suite's Azure
+tests remain offline. Signed GitHub releases remain drafts until real Excel and
+installation qualification is recorded. See [GitHub releases](../docs/github-releases.md).

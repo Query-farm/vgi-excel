@@ -1,6 +1,7 @@
+import { excelWorksheetName } from "./excel-names.js";
 import type { QueryResult } from "./types.js";
 export interface AgentScope { dateRange?: string; filters?: string; assumptions?: string }
-export interface AgentResultCard { toolCallId?: string; id: string; sql: string; result: QueryResult; connection: string; catalog: string; scope: AgentScope }
+export interface AgentResultCard { toolCallId?: string; queryName?: string; id: string; sql: string; result: QueryResult; connection: string; catalog: string; scope: AgentScope }
 export interface AgentClarification { question: string; options: string[]; answer?: string }
 export const CLARIFICATION_TOOL = { name: "ask_clarification", description: "Ask the user one short clarifying question before querying when the date range, currency, business unit, or meaning of a measure materially changes the answer. Wait for their choice; free-text answers are also supported.", input_schema: { type: "object", additionalProperties: false, properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 5 } }, required: ["question", "options"] } } as const;
 export const RESULT_SCOPE_SCHEMA = { type: "object", description: "Explain the SQL's date range, filters and assumptions in plain language. Do not invent facts not established by the query or user.", properties: { dateRange: { type: "string" }, filters: { type: "string" }, assumptions: { type: "string" } } } as const;
@@ -39,4 +40,9 @@ export function savedTranscript(value: unknown): AgentTranscriptPart[] | undefin
     if ((part?.type === "text" || part?.type === "thinking") && typeof part.text === "string") return [{ type: part.type, text: part.text.slice(0, 50000) }];
     return [];
   });
+}
+
+/** A short Excel-safe title, including for results from older conversations. */
+export function agentQueryName(value: unknown): string {
+  return excelWorksheetName(typeof value === "string" ? value : "", "AI query");
 }

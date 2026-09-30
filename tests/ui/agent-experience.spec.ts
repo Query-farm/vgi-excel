@@ -17,7 +17,7 @@ test("AI clarification, per-answer results, safe editor handoff and explicit Exc
     requestedModel = route.request().postDataJSON().model;
     const contents = [
       [{ type: "thinking", thinking: "I need the reporting period.", signature: "hidden-signature" }, { type: "redacted_thinking", data: "hidden-redacted" }, { type: "text", text: "Let me confirm the period first." }, { type: "tool_use", id: "clarify", name: "ask_clarification", input: { question: "Which period?", options: ["This year", "Last year"] } }],
-      [42, 43].map(n => ({ type: "tool_use", id: `sql-${n}`, name: "run_sql", input: { sql: `SELECT ${n} AS answer`, scope: { dateRange: "Last year", filters: "None", assumptions: "Illustrative calculation" } } })),
+      [42, 43].map(n => ({ type: "tool_use", id: `sql-${n}`, name: "run_sql", input: { sql: `SELECT ${n} AS answer`, query_name: `Annual revenue ${n}`, scope: { dateRange: "Last year", filters: "None", assumptions: "Illustrative calculation" } } })),
       [{ type: "text", text: "Two results.\n```sql\nSELECT 43 AS answer\n```" }],
       [{ type: "tool_use", id: "cancel-question", name: "ask_clarification", input: { question: "Which currency?", options: ["USD", "EUR"] } }],
     ];
@@ -57,11 +57,18 @@ test("AI clarification, per-answer results, safe editor handoff and explicit Exc
   await expect(cards.nth(1)).toContainText("Last year");
   await cards.nth(1).getByRole("button", { name: "Edit query", exact: true }).click();
   await expect(page.getByLabel("SQL query")).toHaveValue("SELECT 43 AS answer");
+  await expect(page.getByRole("tab", { name: "Annual revenue 43", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).hostCalls.filter((c: any) => c.method === "query.editor").length)).toBe(0);
   await page.getByRole("tab", { name: "Ask AI", exact: true }).click();
   page.once("dialog", dialog => dialog.dismiss());
   await cards.nth(0).getByRole("button", { name: "Load into Excel", exact: true }).click();
   expect(await page.evaluate(() => (window as any).hostCalls.filter((c: any) => c.method === "excel.createPowerQuery").length)).toBe(0);
+  page.once("dialog", async dialog => {
+    expect(dialog.message()).toContain("Annual revenue 42");
+    await dialog.accept();
+  });
+  await cards.nth(0).getByRole("button", { name: "Load into Excel", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).hostCalls.find((c: any) => c.method === "excel.createPowerQuery")?.params)).toEqual({ sql: "SELECT 42 AS answer", connection: "test", name: "Annual revenue 42", loadToWorksheet: true });
   await cards.nth(1).getByRole("button", { name: "Open window", exact: true }).click();
   expect(await page.evaluate(() => (window as any).hostCalls.find((c: any) => c.method === "results.open").params.result.rows[0][0])).toBe(43);
   await page.locator(".markdown-code").getByRole("button", { name: "Open in Query Editor", exact: true }).click();
