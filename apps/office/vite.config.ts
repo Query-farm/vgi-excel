@@ -104,9 +104,9 @@ export default defineConfig(async ({ command, isPreview }) => {
       sourcemap: uploadSourceMaps ? "hidden" : false,
       rollupOptions: {
         input: {
-          taskpane: "taskpane.html",
-          results: "results.html",
-          oauthDialog: "oauth-dialog.html",
+          taskpane: resolve(here, "taskpane.html"),
+          results: resolve(here, "results.html"),
+          oauthDialog: resolve(here, "oauth-dialog.html"),
         },
       },
     },
