@@ -13,8 +13,7 @@
     "patch": "windows/odbc/cupola.patch"
   },
   "vgi": {
-    "sha256": "3a6a550331856e2e45724c384f974a6c9dcd11ca4ac6215391ad947603207d68",
-    "platform": "windows_amd64",
-    "engineVersion": "v1.5.5"
+    "lockFile": "vgi-extensions.lock.json",
+    "platform": "windows_amd64"
   }
 }

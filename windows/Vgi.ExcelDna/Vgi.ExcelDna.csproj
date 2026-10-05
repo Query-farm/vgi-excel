@@ -5,9 +5,9 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Vgi.ExcelDna</AssemblyName>
     <RootNamespace>QueryFarm.Vgi.ExcelDna</RootNamespace>
-    <Version>0.5.0</Version>
-    <AssemblyVersion>0.5.0.0</AssemblyVersion>
-    <FileVersion>0.5.0.0</FileVersion>
+    <Version>0.5.1</Version>
+    <AssemblyVersion>0.5.1.0</AssemblyVersion>
+    <FileVersion>0.5.1.0</FileVersion>
     <ExcelDnaCreate32BitAddIn>true</ExcelDnaCreate32BitAddIn>
     <ExcelDnaCreate64BitAddIn>true</ExcelDnaCreate64BitAddIn>
     <ExcelDnaPack>true</ExcelDnaPack>
@@ -20,6 +20,7 @@
     <PackageReference Include="Sentry" Version="6.11.0" />
     <PackageReference Include="TimeZoneConverter" Version="7.2.0" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Numerics" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Security" />
@@ -28,6 +29,7 @@
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../Updating/*.cs" Link="Updating/%(Filename)%(Extension)" />
     <EmbeddedResource Include="cupola-mark.png" LogicalName="QueryFarm.Vgi.ExcelDna.OpeningMark" />
     <None Update="cupola-mark.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

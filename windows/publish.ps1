@@ -35,10 +35,15 @@ if ([string]::IsNullOrWhiteSpace($OdbcDriverPath)) { throw 'Pass -OdbcDriverPath
 $null = Get-Item $OdbcDriverPath
 $repository = Split-Path -Parent $PSScriptRoot
 $product = Get-Content (Join-Path $repository 'package.json') -Raw | ConvertFrom-Json
+$vgiLock = Get-Content (Join-Path $repository 'vgi-extensions.lock.json') -Raw | ConvertFrom-Json
+if ((Get-FileHash -LiteralPath $VgiExtensionPath -Algorithm SHA256).Hash -ne $vgiLock.artifacts.windows_amd64.sha256) {
+    throw 'VGI extension does not match vgi-extensions.lock.json. Package the approved binary for this release.'
+}
 if ($Production) {
     if ([string]::IsNullOrWhiteSpace($NativeProvenancePath)) { $NativeProvenancePath = Join-Path (Split-Path -Parent $OdbcDriverPath) 'provenance.json' }
     $provenance = Get-Content -LiteralPath $NativeProvenancePath -Raw | ConvertFrom-Json
     if ($provenance.lockSha256 -ne (Get-FileHash (Join-Path $PSScriptRoot 'native-inputs.lock.json')).Hash -or $provenance.patchSha256 -ne (Get-FileHash (Join-Path $PSScriptRoot 'odbc\cupola.patch')).Hash) { throw 'Native provenance does not match the reviewed source lock and Cupola patch.' }
+    if ($provenance.vgiLockSha256 -ne (Get-FileHash (Join-Path $repository 'vgi-extensions.lock.json')).Hash) { throw 'Native provenance does not match the approved VGI lock.' }
     foreach ($input in @(@{Path=$HaybarnPath;Name='haybarn.exe'},@{Path=$OdbcDriverPath;Name='haybarn_odbc.dll'},@{Path=$VgiExtensionPath;Name='vgi.duckdb_extension'})) {
         if ($provenance.files.($input.Name) -ne (Get-FileHash -LiteralPath $input.Path -Algorithm SHA256).Hash) { throw 'A native input does not match its build provenance.' }
     }
@@ -88,6 +93,10 @@ dotnet build (Join-Path $PSScriptRoot 'Cupola.ExcelLoader\Cupola.ExcelLoader.csp
 if ($LASTEXITCODE -ne 0) { throw 'Excel loader build failed.' }
 Copy-Item (Join-Path $PSScriptRoot 'Cupola.ExcelLoader\bin\Release\net48\Cupola.ExcelLoader.dll') $xll -Force
 
+dotnet build (Join-Path $PSScriptRoot 'Cupola.Updater\Cupola.Updater.csproj') -c Release
+if ($LASTEXITCODE -ne 0) { throw 'Updater build failed.' }
+Copy-Item (Join-Path $PSScriptRoot 'Cupola.Updater\bin\Release\net48\Cupola.Updater.exe') $xll -Force
+
 $xllOutput = Join-Path $PSScriptRoot 'Vgi.ExcelDna\bin\Release\net48\publish'
 Copy-Item (Join-Path $xllOutput 'Vgi.ExcelDna-packed.xll') $xll -Force
 Copy-Item (Join-Path $xllOutput 'Vgi.ExcelDna64-packed.xll') $xll -Force
@@ -109,7 +118,7 @@ foreach ($assembly in @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebVie
     if (Test-Path $source) { Copy-Item $source (Join-Path $xll $assembly) -Force }
     else { throw "XLL build did not produce required WebView2 assembly $assembly" }
 }
-foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'haybarn_odbc.dll', 'Cupola.ExcelLoader.dll', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'install-xll.ps1', 'register-odbc.ps1')) {
+foreach ($file in @('Vgi.ExcelDna-packed.xll', 'Vgi.ExcelDna64-packed.xll', 'haybarn.exe', 'haybarn_odbc.dll', 'Cupola.ExcelLoader.dll', 'Cupola.Updater.exe', 'WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'install-xll.ps1', 'register-odbc.ps1')) {
     $path = Join-Path $xll $file
     if (Test-Path $path) { Sign-Artifact $path }
 }

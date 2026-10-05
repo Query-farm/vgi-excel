@@ -7,6 +7,8 @@ const build = root.cupolaBuild;
 const manifestVersion = root.officeManifestVersion;
 if (!/^[1-9]\d*\.\d+\.\d+\.\d+$/.test(manifestVersion)) throw new Error("officeManifestVersion must be a four-part version of at least 1.0.");
 const checks = [
+  ["windows/Cupola.Updater/Cupola.Updater.csproj", text => text.includes(`<Version>${version}</Version>`), `updater version ${version}`],
+  ["installer/Package.wxs", text => text.includes(`Id="CUPOLABUILD" Value="${build}"`), `MSI build ${build}`],
   ["windows/Cupola.ExcelLoader/Cupola.ExcelLoader.csproj", (text) => text.includes(`<Version>${version}</Version>`) && text.includes(`<AssemblyVersion>${version}.0</AssemblyVersion>`), `Excel loader version ${version}`],
   ["apps/desktop/package.json", (text) => JSON.parse(text).version === version, `version ${version}`],
   ["apps/office/package.json", (text) => JSON.parse(text).version === version, `version ${version}`],

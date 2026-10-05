@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "extensionVersion": "ef59ff8",
+  "engineVersion": "v1.5.5",
+  "wasmPackageVersion": "1.5.5-rc4",
+  "artifacts": {
+    "windows_amd64": {
+      "url": "https://haybarn-extensions.query.farm/community/v1.5.5/windows_amd64/vgi.duckdb_extension.gz",
+      "compression": "gzip",
+      "sha256": "62c5eb419e28139df2a3cda7d5b7b91ab2d219dd572f9bd09f4fbd54141a783f",
+      "size": 50853910
+    },
+    "wasm_mvp": {
+      "url": "https://haybarn-extensions.query.farm/community/v1.5.5/wasm_mvp/vgi.duckdb_extension.wasm",
+      "compression": "none",
+      "sha256": "579dace79695d584d99cecbad4402d06f876f93d9d01e036fe6df13fd246ee8b",
+      "size": 4598695
+    },
+    "wasm_eh": {
+      "url": "https://haybarn-extensions.query.farm/community/v1.5.5/wasm_eh/vgi.duckdb_extension.wasm",
+      "compression": "none",
+      "sha256": "ca601d3be3bed3b0000736105e0f6e622b7101040be716318208fcef4c798bde",
+      "size": 5612598
+    },
+    "wasm_threads": {
+      "url": "https://haybarn-extensions.query.farm/community/v1.5.5/wasm_threads/vgi.duckdb_extension.wasm",
+      "compression": "none",
+      "sha256": "262f416fdfd7369a7071b555218fa164be5fc8841a10008d3e532804a29ef375",
+      "size": 5580773
+    }
+  }
+}

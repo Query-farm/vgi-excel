@@ -3,6 +3,8 @@ import { installVgiOAuthBridge } from "@haybarn/haybarn-wasm/vgi";
 import { tableFromArrays, tableFromIPC, type Table } from "apache-arrow";
 import {
   assertHttpsConnection,
+  connectionSignIn,
+  ConnectionSignInError,
   catalogNames,
   qualifiedFunctionName,
   quoteIdentifier,
@@ -42,6 +44,11 @@ const runtimeDiagnostics: BrowserRuntimeDiagnostics = {
 
 export function browserRuntimeDiagnostics(): BrowserRuntimeDiagnostics { return { ...runtimeDiagnostics }; }
 
+/** Load the exact file deployed with this app, independently of the extension cache. */
+export function bundledVgiLoadSql(bundle: "mvp" | "eh" | "coi" = runtimeDiagnostics.selectedBundle ?? "mvp", base = typeof document === "undefined" ? "https://cupola.invalid/" : new URL(import.meta.env.BASE_URL, document.baseURI).href): string {
+  return `LOAD ${quoteLiteral(new URL(__VGI_EXTENSION_PATHS__[bundle], base).href)}`;
+}
+
 export class BrowserBackend implements QueryBackend {
   private static boot: Promise<{ db: duckdb.AsyncDuckDB }> | null = null;
   private runtime: Promise<AsyncConnection> | null = null;
@@ -60,8 +67,7 @@ export class BrowserBackend implements QueryBackend {
       const connection = await db.connect();
       signal?.throwIfAborted();
       await connection.query("LOAD json");
-      await connection.query("INSTALL vgi FROM community").catch(() => undefined);
-      await connection.query("LOAD vgi");
+      await connection.query(bundledVgiLoadSql());
       const token = getServiceToken(location);
       await connection.query(`SET vgi_oauth_enabled=${token?.refresh_token ? "true" : "false"}`);
       const options = ["oauth_cache := 'none'"];
@@ -103,6 +109,7 @@ export class BrowserBackend implements QueryBackend {
     // One pending query per connection: a queued request must never interrupt its predecessor.
     const pending = this.queryTail.then(async () => {
       options.signal?.throwIfAborted();
+      if (connectionSignIn.snapshot().includes(this.definition.name)) throw new ConnectionSignInError(this.definition.name);
       const connection = await this.connection(options.signal);
       const started = performance.now();
       const table = await this.queryConnection(connection, sql, options.signal);
@@ -112,8 +119,9 @@ export class BrowserBackend implements QueryBackend {
       }
       return result;
     });
+    const reported = pending.catch(error => { throw error instanceof ConnectionSignInRequired ? error : connectionSignIn.error(this.definition.name, error); });
     this.queryTail = pending.then(() => {}, () => {});
-    return pending;
+    return reported;
   }
 
   private async queryConnection(connection: AsyncConnection, sql: string, signal?: AbortSignal): Promise<Table> {
@@ -192,8 +200,7 @@ export class BrowserBackend implements QueryBackend {
       // Load before metadata queries; threaded WASM can stall when JSON autoloads mid-query.
       signal?.throwIfAborted();
       await this.queryConnection(connection, "LOAD json", signal);
-      await this.queryConnection(connection, "INSTALL vgi FROM community", signal).catch(error => { signal?.throwIfAborted(); });
-      await this.queryConnection(connection, "LOAD vgi", signal);
+      await this.queryConnection(connection, bundledVgiLoadSql(), signal);
       try {
         await this.attach(connection, signal);
       } catch (error) {
@@ -242,7 +249,7 @@ async function bootHaybarn(signal?: AbortSignal): Promise<{ db: duckdb.AsyncDuck
   };
   const selected = await duckdb.selectBundle(bundles);
   signal?.throwIfAborted();
-  runtimeDiagnostics.selectedBundle = selected === bundles.coi ? "coi" : selected === bundles.eh ? "eh" : "mvp";
+  runtimeDiagnostics.selectedBundle = selected.mainModule === bundles.coi?.mainModule ? "coi" : selected.mainModule === bundles.eh?.mainModule ? "eh" : "mvp";
   const worker = new Worker(selected.mainWorker!);
   signal?.addEventListener("abort", () => worker.terminate(), { once: true });
   if (runtimeDiagnostics.crossOriginIsolated && runtimeDiagnostics.sharedArrayBuffer) installVgiOAuthBridge(worker);

@@ -1,3 +1,6 @@
+import { reauthenticateConnection } from "./reauthenticate";
+import { AuthRecovery } from "./AuthRecovery";
+import { connectionSignIn, ConnectionSignInError } from "@query-farm/vgi-excel-core";
 import { WorkspaceConnections } from "./WorkspaceConnections";
 import { workspaceConnection } from "./workspace";
 import { agentQueryName, appendTranscript } from "@query-farm/vgi-excel-core";
@@ -11,7 +14,7 @@ import { SettingsPage, type SettingsSection } from "./SettingsPage";
 import { openResultsWindow } from "./results-window";
 import { catalogDraft, connectionNameError, catalogDiscoveryError } from "@query-farm/vgi-excel-core";
 import { AI_MODELS, AI_EFFORT_LEVELS, DEFAULT_AI_MODEL, normalizeEffort, supportsEffort } from "@query-farm/vgi-excel-core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { activateQueryDocument, addQueryDocument, formatAttachOptionsJson, loadQueryDocumentState, parseAttachOptionsJson, removeQueryDocument, renameQueryDocument, saveQueryDocumentState, updateQueryDocumentSql, type QueryDocumentState, type QueryResult } from "@query-farm/vgi-excel-core";
 import { AgentSession, DEFAULT_MODEL } from "./agent";
 import { activateAgentConversation, addAgentConversation, loadAgentConversationState, removeAgentConversation, renameAgentConversation, saveAgentConversationState, titleFromPrompt, type AgentConversationDocument, type AgentConversationState, type ChatMessage, type StagedWorkbookAction, type ToolEvent } from "./agent-conversations";
@@ -55,8 +58,19 @@ export function App(): React.JSX.Element {
   async function perform<T>(label: string, fn: () => Promise<T | string>, success?: string | null): Promise<T | undefined> {
     setBusy(true); setNotice(null); retry.current = () => { void perform(label, fn, success); };
     try { const value = await fn(); return value as T; }
-    catch (error) { setNotice({ kind: "error", message: message(error) }); return undefined; }
+    catch (error) { if (!(error instanceof ConnectionSignInError)) setNotice({ kind: "error", message: message(error) }); return undefined; }
     finally { setBusy(false); }
+  }
+  async function reauthenticate(name: string): Promise<void> {
+    const connection = connections.find(value => value.name === name);
+    if (!connection || connection.members?.length) throw new Error("Choose an individual connection to sign in.");
+    setBusy(true);
+    try {
+      await reauthenticateConnection(connection, setConnections);
+      // A profile will be rebuilt with the new credential on the next explicit query.
+      for (const profile of connections) if (profile.members?.includes(name)) connectionSignIn.clear(profile.name);
+      setNotice({ kind: "info", message: "Signed in. You can run your query again." });
+    } finally { setBusy(false); }
   }
   async function openAbout(): Promise<void> {
     setAbout(true);
@@ -74,6 +88,7 @@ export function App(): React.JSX.Element {
   return <main className="app-shell">
     <header><div className="brand"><img className="mark" src="./cupola-mark.svg" alt=""/><h1>Cupola <span>for Excel</span></h1></div>
     <WorkspaceTabs value={view} tabs={[{ id: "query", label: "Query Editor", icon: <FileCode2 aria-hidden="true"/> }, { id: "agent", label: "Ask AI", icon: <Sparkles aria-hidden="true"/> }, { id: "catalog", label: "Catalog View", icon: <Database aria-hidden="true"/> }]} onChange={openWorkspace}/><div className="header-actions"><button className="icon-button" aria-label="Workbook data" title="Workbook data" onClick={() => setView("workbook")}><TableProperties aria-hidden="true"/></button><button className="icon-button" aria-label="Settings" title="Settings" aria-pressed={view === "connections"} aria-controls="panel-connections" onClick={() => setView("connections")}><Settings aria-hidden="true"/></button></div></header>
+    <AuthRecovery connections={connections} busy={busy} onSignIn={reauthenticate} onOpenConnections={() => { openWorkspace("connections"); requestAnimationFrame(() => document.querySelector<HTMLElement>("#panel-connections button")?.focus()); }}/>
     <Notice value={notice} onDismiss={() => setNotice(null)} onRetry={notice?.kind === "error" && retry.current ? retry.current : undefined} onDiagnostics={() => void copyDiagnostics()}/>
     {!active ? (view !== "connections" && view !== "agent" ? <Onboarding onConnect={() => openWorkspace("connections")}/> : null) : <>
       <TabPanel id="query" active={view === "query"} busy={busy}><SqlPanel key={active.name} connection={active} busy={busy} perform={perform} pendingQueries={pendingQueries} onPendingConsumed={(ids) => setPendingQueries((values) => values.filter((value) => !ids.includes(value.id)))}/></TabPanel>
@@ -81,7 +96,7 @@ export function App(): React.JSX.Element {
       <TabPanel id="catalog" active={view === "catalog"} busy={busy}><CatalogPanel active={view === "catalog"} connection={active} busy={busy} perform={perform} openSql={(sql) => queueQuery(sql, undefined, true)}/></TabPanel>
     </>}
       <TabPanel id="agent" active={view === "agent"} busy={busy}><AgentPanel active={view === "agent"} settingsActive={view === "connections" && settingsSection === "ai"} settingsTarget={aiSettingsTarget} onConfigure={openAISettings} key={active?.name ?? "default"} connection={active} busy={busy} setBusy={setBusy} setNotice={setNotice} onCreateQuery={(value, navigate) => queueQuery(value.sql, value.name, navigate)}/></TabPanel>
-    <div id="panel-connections" hidden={view !== "connections"} className="workspace-panel"><SettingsPage section={settingsSection} onSection={setSettingsSection} onBack={() => openWorkspace(workspace)} connections={<ConnectionsPanel values={connections} setValues={setConnections} busy={busy} perform={perform}/>} aiTarget={setAISettingsTarget} about={<><AboutContent diagnostics={diagnostics} onCopy={() => void copyDiagnostics()}/><AIRequestDiagnostics/></>}/></div>
+    <div id="panel-connections" hidden={view !== "connections"} className="workspace-panel"><SettingsPage section={settingsSection} onSection={setSettingsSection} onBack={() => openWorkspace(workspace)} connections={<ConnectionsPanel onSignIn={reauthenticate} values={connections} setValues={setConnections} busy={busy} perform={perform}/>} aiTarget={setAISettingsTarget} about={<><AboutContent diagnostics={diagnostics} onCopy={() => void copyDiagnostics()}/><AIRequestDiagnostics/></>}/></div>
     {view === "workbook" && <section className="settings-view" aria-labelledby="workbook-title"><div className="section-heading"><div><p className="eyebrow">Workbook</p><h2 id="workbook-title">Cupola tables</h2></div><button onClick={() => openWorkspace(workspace)}>Back</button></div><DesktopWorkbookPanel busy={busy} perform={perform}/></section>}
 
     {about && <AboutDialog diagnostics={diagnostics} onClose={() => setAbout(false)} onCopy={() => void copyDiagnostics()}/>}
@@ -481,7 +496,8 @@ function DesktopWorkbookPanel({ busy, perform }: { busy: boolean; perform: Perfo
   </div>;
 }
 
-function ConnectionsPanel({ values, setValues, busy, perform }: { values: DesktopConnection[]; setValues(v: DesktopConnection[]): void; busy: boolean; perform: Perform }): React.JSX.Element {
+function ConnectionsPanel({ onSignIn, values, setValues, busy, perform }: { onSignIn(name: string): Promise<void>; values: DesktopConnection[]; setValues(v: DesktopConnection[]): void; busy: boolean; perform: Perform }): React.JSX.Element {
+  const needsSignIn = useSyncExternalStore(connectionSignIn.subscribe, connectionSignIn.snapshot);
   const catalogInput = useRef<HTMLInputElement>(null);
   const findCatalogsButton = useRef<HTMLButtonElement>(null);
   const catalogSelect = useRef<HTMLSelectElement>(null);
@@ -495,6 +511,9 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
   const [catalogs, setCatalogs] = useState<string[]>([]), [manualCatalog, setManualCatalog] = useState(true), [nameEdited, setNameEdited] = useState(!!active);
   const [errorAt, setErrorAt] = useState<"discovery" | "connection">("connection");
   const [validation, setValidation] = useState("");
+  useEffect(() => {
+    if (!needsSignIn.includes(originalName)) setValidation(value => value === "Sign-in wasn’t completed. Try again when you’re ready." ? "" : value);
+  }, [needsSignIn, originalName]);
   useEffect(() => { if (busy) return; if (validation && errorAt === "discovery") findCatalogsButton.current?.focus(); else if (catalogs.length > 1) catalogSelect.current?.focus(); }, [busy, validation, errorAt, catalogs]);
   useEffect(() => { if (!originalName && active) { setProfile(!!active.members?.length); setForm({ ...active }); setNameEdited(true); setOriginalName(active.name); setAttachOptionsText(formatAttachOptionsJson(active.attachOptions)); } }, [active?.name]);
   function edit(value: DesktopConnection): void { setProfile(!!value.members?.length); setForm({ ...value }); setCatalogs([]); setManualCatalog(true); setNameEdited(true); setOriginalName(value.name); setAttachOptionsText(formatAttachOptionsJson(value.attachOptions)); setStatus(""); setValidation(""); }
@@ -545,7 +564,7 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
     await perform("Updating workspace…", async () => { setValues(await host.setWorkspace(members)); }, null);
   }
   return <div className="connection-layout">
-    <fieldset className="connection-sidebar" disabled={busy}><WorkspaceConnections values={values} busy={busy} apply={applyWorkspace}/><button className="primary new-connection" onClick={create}>New connection</button><div className="connection-list">{individualConnections.map((value) => <button key={value.name} className={`${originalName === value.name ? "connection selected-connection" : "connection"} `} onClick={() => edit(value)} title={value.location}><span className={`health-dot ${value.authentication === "anonymous" || value.isSignedIn ? "configured" : ""}`}/><span><strong>{value.name}</strong><small>{value.members?.length ? `${value.members.length} connections` : `${value.catalog} · ${value.isSignedIn ? "Signed in" : value.authentication === "oauth" ? "Sign-in opens when needed" : "Ready"}`}</small></span></button>)}</div><details><summary>Manage profiles (advanced)</summary>{individualConnections.length >= 2 && <button onClick={combine}>New saved profile</button>}{values.filter(value => value.members?.length && !value.isWorkspaceProfile).map(value => <button key={value.name} onClick={() => edit(value)}>{value.name}</button>)}</details></fieldset>
+    <fieldset className="connection-sidebar" disabled={busy}><WorkspaceConnections values={values} busy={busy} apply={applyWorkspace}/><button className="primary new-connection" onClick={create}>New connection</button><div className="connection-list">{individualConnections.map((value) => <button key={value.name} className={`${originalName === value.name ? "connection selected-connection" : "connection"} `} onClick={() => edit(value)} title={value.location}><span className={`health-dot ${value.authentication === "anonymous" || value.isSignedIn ? "configured" : ""}`}/><span><strong>{value.name}</strong><small>{value.members?.length ? `${value.members.length} connections` : `${value.catalog} · ${needsSignIn.includes(value.name) ? "Sign-in needed" : value.isSignedIn ? "Sign-in saved" : value.authentication === "oauth" ? "Sign-in opens when needed" : "Ready"}`}</small></span></button>)}</div><details><summary>Manage profiles (advanced)</summary>{individualConnections.length >= 2 && <button onClick={combine}>New saved profile</button>}{values.filter(value => value.members?.length && !value.isWorkspaceProfile).map(value => <button key={value.name} onClick={() => edit(value)}>{value.name}</button>)}</details></fieldset>
     <fieldset className="connection-form" disabled={busy}>
       <h3>{originalName ? `Edit ${originalName}` : profile ? "Combine saved connections" : "New connection"}</h3>
       {profile ? <>
@@ -577,7 +596,8 @@ function ConnectionsPanel({ values, setValues, busy, perform }: { values: Deskto
       {validation && errorAt === "connection" && <p className="field-error" role="alert">{validation}</p>}
       <div className="actions connection-actions"><button disabled={busy || !valid} onClick={() => void test()}>{busy && status.startsWith("Testing") ? "Testing…" : "Test connection"}</button><button className="primary" disabled={busy || !valid} onClick={() => void run("Saving connection…", "Connection saved.", async () => { const prepared = definition(); let next = await host.saveConnection(prepared, values.length === 0 || !!form.isDefault, originalName); if (originalName && originalName !== prepared.name) next = await host.removeConnection(originalName); setOriginalName(prepared.name); setNameEdited(true); return next; })}>Save changes</button></div>
       {status && <p className="connection-status" role="status">{status}</p>}
-      {form.isSignedIn && <div className="oauth-card"><div><strong>Signed in securely</strong><small>The refresh session is encrypted for your Windows account. Cupola will reuse it automatically.</small></div><button disabled={busy} onClick={() => void run("Signing out…", "Signed out. Cupola will prompt again if this service requires authentication.", () => host.signOut(form))}>Sign out</button></div>}
+      {originalName && !profile && form.authentication === "oauth" && <button disabled={busy} onClick={() => { setValidation(""); void onSignIn(originalName).then(() => setStatus("Signed in. You can run your query again.")).catch(() => setValidation("Sign-in wasn’t completed. Try again when you’re ready.")); }}>Sign in again</button>}
+      {form.isSignedIn && <div className="oauth-card"><div><strong>{needsSignIn.includes(originalName) ? "Sign-in needed" : "Sign-in saved"}</strong><small>The refresh session is encrypted for your Windows account. Cupola will reuse it automatically.</small></div><button disabled={busy} onClick={() => void run("Signing out…", "Signed out. Cupola will prompt again if this service requires authentication.", () => host.signOut(form))}>Sign out</button></div>}
       {originalName && <div className="danger-zone"><button className="danger" disabled={busy || referenced} onClick={() => { if (!window.confirm(`Remove “${originalName}” and its saved OAuth session?`)) return; void run("Removing connection…", "Connection and saved OAuth session removed.", async () => { const next = await host.removeConnection(originalName); setForm(blank()); setCatalogs([]); setManualCatalog(true); setNameEdited(false); setOriginalName(""); setAttachOptionsText(""); return next; }); }}>Remove connection</button></div>}
     </fieldset>
   </div>;

@@ -627,3 +627,9 @@ header .workspace-tabs button { min-height: 32px; padding: 5px 7px; flex-directi
 .connection-sidebar > details > button { display: block; margin-top: 8px; width: 100%; }
 .workspace-catalogs .combined-connections { min-width: 0; padding: 0; border: 0; margin: 0; }
 .workspace-catalogs input[type="checkbox"] { width: 18px; height: 18px; padding: 0; margin: 0; }
+
+.cupola-updates { margin-block: 16px; text-align: left; overflow-wrap: anywhere; }
+.cupola-updates h4 { margin-bottom: 8px; }
+.cupola-updates .actions { flex-wrap: wrap; }
+.update-preference { display: flex; align-items: center; gap: 8px; }
+.update-preference input { width: auto; flex: 0 0 auto; }

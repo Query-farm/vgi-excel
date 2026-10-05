@@ -59,6 +59,10 @@ Run-Step 'MSI inspection' {
     & (Join-Path $repository 'tests\packaging\msi-smoke.ps1') -MsiPath (Join-Path $repository 'installer\bin\Release\VgiExcel.msi')
 }
 
+Run-Step 'Updater MSI identity' {
+    dotnet run --project (Join-Path $repository 'windows\Vgi.ExcelDna.Tests\Vgi.ExcelDna.Tests.csproj') -c Release -- --verify-update-identity (Join-Path $repository 'installer\bin\Release\VgiExcel.msi')
+}
+
 Run-Step 'Connection defaults validation' {
     & (Join-Path $repository 'tests\packaging\connection-defaults.ps1')
 }

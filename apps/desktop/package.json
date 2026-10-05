@@ -1,6 +1,6 @@
 {
   "name": "@query-farm/vgi-excel-desktop",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@query-farm/vgi-excel-core": "0.5.0",
+    "@query-farm/vgi-excel-core": "0.5.1",
     "@sentry/react": "^10.75.0",
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",

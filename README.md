@@ -137,6 +137,12 @@ Evergreen Runtime. Close Excel before installing; installation requires
 administrator access. See the [Windows setup guide](docs/development.md#windows-excel-dna-package)
 for developer XLL installation and compatibility details.
 
+In **Settings → About**, the Windows add-in can check for updates and download
+a verified installer. Choose **Install update**, save your work, and close all
+Excel windows; the updater waits for Excel to close before installing. Daily
+checks run when you open Cupola and can be turned off. See the
+[Windows updater guide](docs/windows-updates.md) for managed deployments.
+
 For the Microsoft 365 add-in, download the
 [installation manifest](https://cupola.query.farm/manifest.xml) and follow the
 [Office installation instructions](docs/cloudflare-hosting.md#installing-in-microsoft-365).
@@ -150,10 +156,20 @@ or Power Query definitions. Windows OAuth sessions are encrypted for the current
 Windows user, and saved AI keys use Windows Credential Manager. Office sign-in
 material stays in the Office session.
 
+If an OAuth session expires or needs your attention, Cupola shows **Sign in
+again** for the affected connection. Complete sign-in, then run your query again;
+Cupola preserves your draft and never automatically repeats the failed action.
+For a workspace with multiple connections, choose **Open connections**, select
+the connection that needs attention, and choose **Sign in again**.
+
 Ask AI communicates with Anthropic using your configured key. This is separate
 from Cupola's error reporting: diagnostic reports exclude SQL, query results,
 workbook contents and names, AI prompts and responses, credentials, and connection
 URLs. See [privacy and telemetry settings](docs/development.md#sentry-releases-and-source-maps).
+
+Query Farm publishes its [Privacy Policy](https://query.farm/legal/privacy/) and
+[Terms of Service](https://query.farm/legal/terms/). Cupola's software license is
+provided in [LICENSE](LICENSE).
 
 ## Documentation
 
@@ -170,3 +186,7 @@ URLs. See [privacy and telemetry settings](docs/development.md#sentry-releases-a
 [Query Farm Source-Available License 1.0](LICENSE).
 
 Copyright © 2025–2026 [Query Farm LLC](https://query.farm).
+
+VGI is bundled with each Cupola release and verified against a shared release
+lock. See [VGI packaging and upgrades](docs/vgi-packaging.md) for how native and
+Office extension versions are selected and qualified.

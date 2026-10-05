@@ -282,6 +282,11 @@ internal static class WorkbenchBridge
         {
             case "app.info": return new { ProductInfo.Name, ProductInfo.Version, ProductInfo.Build };
             case "app.diagnostics": return HaybarnClient.Diagnostics();
+            case "updates.status": return parameters.Value<bool>("autoCheck") ? await UpdateService.AutoCheck() : UpdateService.Status();
+            case "updates.preference": return UpdateService.Preference(parameters.Value<bool>("daily"));
+            case "updates.check": return await UpdateService.Check();
+            case "updates.download": return await UpdateService.Download(progress);
+            case "updates.install": return await UpdateService.Install();
             case "ui.ready": return true;
             case "agent.key.load": return AgentCredentialStore.Load();
             case "agent.key.save":

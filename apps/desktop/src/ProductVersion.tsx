@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Updates } from "./Updates";
 export function AboutDialog({ diagnostics, onClose, onCopy }: { diagnostics: string; onClose(): void; onCopy(): void }): React.JSX.Element {
   const dialog = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -17,5 +18,5 @@ export function AboutDialog({ diagnostics, onClose, onCopy }: { diagnostics: str
 }
 
 export function AboutContent({ diagnostics, onCopy }: { diagnostics: string; onCopy(): void }): React.JSX.Element {
-  return <div className="about-content"><img className="about-mark" src="./cupola-mark.svg" alt=""/><h3>Cupola for Excel</h3><p className="about-version">Version {__APP_VERSION__}<br/>Build {__BUILD_ID__}</p><p><a href="https://query.farm" target="_blank" rel="noopener noreferrer">Query.Farm</a></p><details><summary>Diagnostics</summary><pre>{diagnostics}</pre></details><button onClick={onCopy}>Copy diagnostics</button></div>;
+  return <div className="about-content"><img className="about-mark" src="./cupola-mark.svg" alt=""/><h3>Cupola for Excel</h3><p className="about-version">Version {__APP_VERSION__}<br/>Build {__BUILD_ID__}</p><Updates/><p><a href="https://query.farm" target="_blank" rel="noopener noreferrer">Query.Farm</a></p><details><summary>Diagnostics</summary><pre>{diagnostics}</pre></details><button onClick={onCopy}>Copy diagnostics</button></div>;
 }

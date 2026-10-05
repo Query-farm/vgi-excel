@@ -372,3 +372,47 @@ then validates signed MSI contents. Its `signing-test` mode performs a real Azur
 OIDC signing request on a disposable file; the default Windows suite's Azure
 tests remain offline. Signed GitHub releases remain drafts until real Excel and
 installation qualification is recorded. See [GitHub releases](../docs/github-releases.md).
+
+## MSI updater validation
+
+The desktop policy suite includes updater release parsing, version ordering,
+trusted download origins, checksums, and rejection of unsigned files.
+`tests/ui/updates.spec.ts` covers the update flow at 360×480, daily preferences,
+and the explicit installation handoff. The Windows suite also checks the new
+MSI's identity through the updater's own Windows Installer reader.
+
+To verify Authenticode handling against a production-signed MSI, run:
+
+```powershell
+dotnet run --project windows/Vgi.ExcelDna.Tests -c Release -- --verify-update-publisher C:\path\CupolaForExcel.msi
+```
+
+See [Windows updates](../docs/windows-updates.md) for the signed upgrade release
+gate and enterprise policy. Offline tests do not replace this lifecycle check.
+
+## OAuth session recovery
+
+`auth-recovery.test.ts` in core, Office, and desktop covers interactive-error
+classification, the WASM/native bridge boundaries, and repeated failures without
+query replay. `reauthenticate.test.ts` covers cancellation and successful session
+reset in both hosts. `tests/ui/auth-recovery.spec.ts` covers the persistent action,
+profile navigation, permission errors, retained SQL drafts, and the 300px Office
+and 360px desktop layouts. These use synthetic errors and mocked sign-in; they
+neither contact Entra nor send Sentry events. A real Entra expiry/revocation test
+remains part of manual OAuth qualification.
+
+## Packaged VGI coverage
+
+`npm run test:extensions` checks artifact hashes, footer ABI/platform/revision,
+cache validation, and gzip decoding with deterministic fixtures. `npm test`
+includes it and the Office variant/path selection tests.
+`npm run test:office-wasm` also loads the packaged extension with upstream VGI
+requests blocked in threaded and non-isolated WASM runtimes, and verifies that
+a missing deployment asset fails without a community fallback. These remain
+live HTTPS catalog tests, with `CUPOLA_LIVE_VGI_ENDPOINT` supported.
+
+The Windows policy suite checks explicit-path loading and missing-file failure.
+The ODBC integration temporarily removes the extension from its isolated test
+package and verifies a repair message, then restores it for the live query.
+Use the approved binary from [the VGI lock](../vgi-extensions.lock.json) when
+running `tests\run-windows.ps1`; packaging rejects other revisions.

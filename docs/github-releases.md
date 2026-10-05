@@ -57,18 +57,20 @@ The `cupola-release` GitHub environment stores the three Azure identifier secret
 and four signing variables listed in [Azure signing](azure-signing.md). Its branch
 policy permits `main`. Signing jobs alone receive
 `id-token: write`; the build jobs have read-only repository access. The draft
-release job also receives `contents: write`, and always uses `--draft`. A separate
-input-download job receives `contents: write` because GitHub requires it to read
-draft release assets; that job runs no repository code and has no Azure access.
+release job also receives `contents: write`, and always uses `--draft`. The
+input-download job uses read-only repository access and verifies the public
+signed extension against the shared release lock.
 
 ## Approved VGI input
 
-The existing engine-signed `vgi.duckdb_extension` is stored as an asset of the
-**draft** release `cupola-native-inputs-v1`. Keep that infrastructure release as a
-draft. The workflow downloads it using the repository-scoped GitHub token and
-checks its SHA-256 against `windows/native-inputs.lock.json` before building.
-The extension is never re-signed with Authenticode. Review changes to the native
-lock and the approved input together; never bypass the checksum check.
+`vgi-extensions.lock.json` selects the engine-signed native and WASM artifacts.
+The workflow runs `scripts/prepare-vgi.mjs` to download and verify the Windows
+artifact before building the native inputs. A changed upstream file fails the
+build; it never silently selects a newer extension. The native cache key and
+provenance include this lock. The publisher checks its checksum in developer
+and production packages. Never re-sign the extension with Authenticode.
+See [VGI packaging](vgi-packaging.md) for approving a new revision and supplying
+verified offline copies if an upstream URL has changed.
 
 Sources: [GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc),
 [Azure OIDC authentication](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect).

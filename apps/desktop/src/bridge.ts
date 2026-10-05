@@ -1,4 +1,4 @@
-import type { QueryResult } from "@query-farm/vgi-excel-core";
+import { ConnectionSignInError, connectionSignIn, type QueryResult } from "@query-farm/vgi-excel-core";
 import { captureError } from "./telemetry";
 
 export interface DesktopConnection {
@@ -27,7 +27,7 @@ export interface PowerQueryOutcome { query: string; loaded: boolean; sheet?: str
 interface HostResponse { id: number; result?: unknown; error?: string; progress?: string }
 
 let nextId = 1;
-const pending = new Map<number, { method: string; progress?: (status: string) => void; resolve(value: unknown): void; reject(error: Error): void }>();
+const pending = new Map<number, { method: string; connection?: string; progress?: (status: string) => void; resolve(value: unknown): void; reject(error: Error): void }>();
 
 function receiveHostResponse(value: unknown): void {
   let message = value as HostResponse;
@@ -43,7 +43,7 @@ function receiveHostResponse(value: unknown): void {
   if (message.error) {
     const error = new Error(message.error);
     captureError(error, `bridge.${request.method}`);
-    request.reject(error);
+    request.reject((request.connection ? connectionSignIn.error(request.connection, error) : error) as Error);
   }
   else request.resolve(message.result);
 }
@@ -54,6 +54,9 @@ if (typeof window !== "undefined") {
 }
 
 export function invoke<T>(method: string, params: Record<string, unknown> = {}, timeoutMs = 120_000, progress?: (status: string) => void): Promise<T> {
+  if (typeof params.connection === "string" && connectionSignIn.snapshot().includes(params.connection)) {
+    return Promise.reject(new ConnectionSignInError(params.connection));
+  }
   const webview = typeof window === "undefined" ? undefined : window.chrome?.webview;
   if (!webview) return Promise.reject(new Error("The VGI native bridge is unavailable."));
   const id = nextId++;
@@ -66,6 +69,7 @@ export function invoke<T>(method: string, params: Record<string, unknown> = {}, 
     }, timeoutMs);
     pending.set(id, {
       method,
+      connection: typeof params.connection === "string" ? params.connection : undefined,
       progress,
       resolve: (value) => { globalThis.clearTimeout(timeout); resolve(value as T); },
       reject: (error) => { globalThis.clearTimeout(timeout); reject(error); },

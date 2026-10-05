@@ -101,7 +101,7 @@ internal sealed class HaybarnClient
     internal static string ProbePrelude()
     {
         var extension = ExtensionPath();
-        var load = File.Exists(extension) ? $"LOAD {SqlString(extension)};" : "INSTALL vgi FROM community; LOAD vgi;";
+        var load = BundledExtensionLoadScript(extension);
         return load + " SET vgi_http_timeout_seconds=5; SET http_timeout=5; SET http_retries=0;";
     }
 
@@ -113,8 +113,7 @@ internal sealed class HaybarnClient
         if (attachments.Count == 0) throw new ArgumentException("A session requires at least one catalog.");
         var builder = new StringBuilder();
         var extension = ExtensionPath();
-        if (File.Exists(extension)) builder.AppendLine($"LOAD {SqlString(extension)};");
-        else { builder.AppendLine("INSTALL vgi FROM community;"); builder.AppendLine("LOAD vgi;"); }
+        builder.AppendLine(BundledExtensionLoadScript(extension));
         builder.AppendLine($"SET TimeZone={SqlString(timeZone ?? UserTimeZone.CurrentIanaId())};");
         foreach (var definition in attachments)
         {
@@ -274,6 +273,12 @@ internal sealed class HaybarnClient
         var path = Path.Combine(AddInDirectory(), "haybarn.exe");
         if (!File.Exists(path)) throw new FileNotFoundException("haybarn.exe must be installed beside the VGI XLL.", path);
         return path;
+    }
+
+    internal static string BundledExtensionLoadScript(string path)
+    {
+        if (!File.Exists(path)) throw new InvalidOperationException("A required Cupola component is missing. Repair or reinstall Cupola for Excel.");
+        return $"LOAD {SqlString(Path.GetFullPath(path))};";
     }
 
     private static string ExtensionPath()

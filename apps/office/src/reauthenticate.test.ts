@@ -1,0 +1,20 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { connectionSignIn } from "@query-farm/vgi-excel-core";
+import { reauthenticateConnection } from "./reauthenticate";
+import { signIn } from "./oauth";
+import { resetRuntime } from "./runtime";
+vi.mock("./oauth", () => ({ signIn: vi.fn() }));
+vi.mock("./runtime", () => ({ resetRuntime: vi.fn() }));
+afterEach(() => { vi.clearAllMocks(); connectionSignIn.clear("Finance"); });
+it("keeps recovery available after cancellation and resets cached backends after success", async () => {
+  const connection = { name: "Finance", location: "https://example.test" };
+  connectionSignIn.require(connection.name);
+  vi.mocked(signIn).mockRejectedValueOnce(new Error("Sign-in was closed"));
+  await expect(reauthenticateConnection(connection)).rejects.toThrow("closed");
+  expect(connectionSignIn.snapshot()).toContain("Finance");
+  expect(resetRuntime).not.toHaveBeenCalled();
+  vi.mocked(signIn).mockResolvedValueOnce({ access_token: "test-only" });
+  await reauthenticateConnection(connection);
+  expect(resetRuntime).toHaveBeenCalledOnce();
+  expect(connectionSignIn.snapshot()).not.toContain("Finance");
+});

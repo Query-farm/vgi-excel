@@ -1,6 +1,6 @@
 """Build the pinned Cupola ODBC fork and assemble verified Windows native inputs.
 Run in an x64 Visual Studio Developer shell; no customer configuration is read.
-The signed VGI extension must come from the organization's approved artifact store.
+The signed VGI extension must match the shared vgi-extensions.lock.json.
 """
 import argparse
 import hashlib
@@ -28,8 +28,10 @@ def main():
     parser.add_argument('--output', type=Path, default=REPO / 'artifacts' / 'native-inputs')
     args = parser.parse_args()
     lock = json.loads((REPO / 'windows/native-inputs.lock.json').read_text())
-    if digest(args.vgi_extension) != lock['vgi']['sha256']:
-        raise ValueError('The VGI extension does not match the reviewed native-input lock.')
+    vgi_lock_path = REPO / lock['vgi']['lockFile']
+    vgi = json.loads(vgi_lock_path.read_text())
+    if digest(args.vgi_extension) != vgi['artifacts'][lock['vgi']['platform']]['sha256']:
+        raise ValueError('The VGI extension does not match the reviewed VGI extension lock.')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     source = REPO / 'artifacts' / ('native-source-' + uuid.uuid4().hex)
@@ -46,12 +48,12 @@ def main():
     run('git', 'apply', patch, cwd=source / 'odbc')
     # Match the reviewed engine ABI. git describe can change as upstream adds tags
     # even when the source commit is pinned, producing an incompatible dev ABI.
-    vendor_env = dict(os.environ, OVERRIDE_GIT_DESCRIBE=lock['vgi']['engineVersion'],
-                      MAIN_BRANCH_VERSIONING='0', SETUPTOOLS_SCM_PRETEND_VERSION=lock['vgi']['engineVersion'],
+    vendor_env = dict(os.environ, OVERRIDE_GIT_DESCRIBE=vgi['engineVersion'],
+                      MAIN_BRANCH_VERSIONING='0', SETUPTOOLS_SCM_PRETEND_VERSION=vgi['engineVersion'],
                       SETUPTOOLS_SCM_PRETEND_HASH=lock['haybarn']['commit'][:10])
     run(sys.executable, 'vendor.py', '--duckdb', source / 'haybarn', cwd=source / 'odbc', env=vendor_env)
     version_source = (source / 'odbc/src/duckdb/src/function/table/version/pragma_version.cpp').read_text()
-    for macro, value in (('DUCKDB_VERSION', lock['vgi']['engineVersion']),
+    for macro, value in (('DUCKDB_VERSION', vgi['engineVersion']),
                          ('DUCKDB_SOURCE_ID', lock['haybarn']['commit'][:10])):
         if f'#define {macro} "{value}"' not in version_source:
             raise ValueError('Generated Haybarn version does not match the reviewed ABI and source revision.')
@@ -76,6 +78,7 @@ def main():
         'lock': lock,
         'lockSha256': digest(REPO / 'windows/native-inputs.lock.json'),
         'patchSha256': digest(patch),
+        'vgiLockSha256': digest(vgi_lock_path),
         'files': {name: digest(output / name) for name in ('haybarn.exe', 'haybarn_odbc.dll', 'vgi.duckdb_extension')},
     }, indent=2) + '\n')
     print('Verified native inputs are ready:', output)

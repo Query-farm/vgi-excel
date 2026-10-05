@@ -122,12 +122,11 @@ product version, build, file sizes, and SHA-256 hashes.
 uv launcher under a virtual environment's `Scripts` directory; the launcher is
 not relocatable.
 
-Refresh the VGI extension when updating an older native package. In the matching
-Haybarn CLI, `FORCE INSTALL vgi FROM community` downloads the current signed
-extension; `SELECT install_path FROM duckdb_extensions() WHERE extension_name =
-'vgi'` locates the file to pass as `-VgiExtensionPath`. An old extension can fail
-against current VGI workers even when the Haybarn executable version matches.
-Run the native HTTPS suite before distributing the package.
+VGI is selected by `vgi-extensions.lock.json`, shared by Windows and Office.
+Run `npm run prepare:vgi -- --platform=windows_amd64 --output=artifacts/approved-vgi`
+and pass `artifacts/approved-vgi/windows_amd64/vgi.duckdb_extension` to the publisher.
+Every package checks the approved checksum. See [VGI packaging](vgi-packaging.md)
+for selection, offline inputs, and the upgrade procedure.
 
 When copying a macOS-built desktop bundle to Windows for `-SkipWebBuild`, replace
 the destination `apps/desktop/dist` directory instead of merging files into an
@@ -240,6 +239,18 @@ elapsed time, token presence and lengths, but never tokens, authorization
 codes, PKCE verifiers, client secrets, or bearer headers.
 Credential-free connection definitions are stored at
 `%LOCALAPPDATA%\QueryFarm\VgiExcel\desktop-connections.json`.
+The Office query backend and desktop query bridge classify interactive OAuth
+failures (`invalid_grant`, `interaction_required`, expired-token/session errors,
+and supported Entra challenges) into an in-memory, per-connection recovery state.
+They show a persistent **Sign in again** action without replaying the query.
+Generic 403 permission errors and refresh network failures retain ordinary error
+handling. Recovery resets Office backends or invalidates native sessions through
+the existing desktop sign-out/sign-in APIs, including dependent profiles. Failed
+or cancelled sign-in leaves recovery available. Profile errors require the user
+to choose an individual connection; Cupola does not guess which member failed.
+No tokens or raw engine messages are stored in the recovery state. **Sign-in
+saved** indicates credential presence, not proof that the session remains valid.
+
 OAuth connections use RFC 9728 discovery and a system-browser PKCE flow. The
 refresh session is encrypted with Windows DPAPI for the current user; access
 and identity tokens remain in memory. The Workbench can also save or forget the
@@ -300,10 +311,11 @@ python windows/build-native-inputs.py --vgi-extension C:\approved\vgi.duckdb_ext
   -BuildMsi -Production -CertificateThumbprint YOUR_CERTIFICATE_THUMBPRINT
 ```
 
-`windows/native-inputs.lock.json` pins upstream revisions and input checksums;
+`windows/native-inputs.lock.json` pins upstream native revisions and references
+the shared `vgi-extensions.lock.json` for the extension checksum and engine ABI;
 `windows/odbc/cupola.patch` contains the reviewed Cupola integration and Windows
 build fixes. The builder emits provenance alongside the native files. Production
-publishing verifies that provenance against the source lock and patch, then
+publishing verifies that provenance against both locks and the patch, then
 requires valid timestamped signatures from the selected certificate. Its private
 key must be accessible to the build identity in the Windows certificate store;
 Azure Artifact Signing uses the alternative `-AzureSigningConfigPath` option.

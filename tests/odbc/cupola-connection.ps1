@@ -17,6 +17,7 @@ function Expect-Rejected([scriptblock]$Action,[string]$Message) {
  try {$c=& $Action;if($c){$c.Dispose()}} catch [System.Data.Odbc.OdbcException] {
   Assert-True (!$_.Exception.Message.Contains('secret-fixture')) 'ODBC must not echo credentials'
   if ($Message -eq 'expired decrypted OAuth session') {Assert-True ($_.Exception.Message -match 'expired') 'DPAPI must decrypt the expired session before rejecting it'}
+  if ($Message -eq 'missing packaged extension') {Assert-True ($_.Exception.Message -match 'required Cupola component is missing') 'missing extension must fail locally with a repair message'}
   if ($Message -eq 'corrupt OAuth session') {Assert-True ($_.Exception.Message -match 'decrypt') 'corrupt DPAPI session must be rejected explicitly'}
   return
  }
@@ -52,6 +53,10 @@ try {
  [IO.File]::WriteAllBytes($sessionPath,[byte[]](1,2,3));Expect-Rejected {Open-Connection $name} 'corrupt OAuth session'
  $sha.Dispose()
  $connection.Authentication='anonymous';Write-Connections @($connection)
+ $packagedExtension=Join-Path $driverDir 'vgi.duckdb_extension'
+ Move-Item $packagedExtension ($packagedExtension+'.saved')
+ try {Expect-Rejected {Open-Connection $name} 'missing packaged extension'}
+ finally {Move-Item ($packagedExtension+'.saved') $packagedExtension}
  Write-Host 'Testing single-catalog HTTPS attachment'
  $c=Open-Connection $name
  try {

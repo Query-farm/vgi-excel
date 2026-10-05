@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Cupola for Excel" Manufacturer="Query Farm LLC" Version="0.5.0" UpgradeCode="9C26AB13-1E7D-4D5F-948D-BBDDC9444346" Scope="perMachine">
+  <Package Name="Cupola for Excel" Manufacturer="Query Farm LLC" Version="0.5.1" UpgradeCode="9C26AB13-1E7D-4D5F-948D-BBDDC9444346" Scope="perMachine">
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer Cupola for Excel installation is already present." />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="CUPOLABUILD" Value="20261005.2" />
     <Binary Id="InstallerChecks" SourceFile="..\artifacts\installer-checks\Release\CupolaInstallerChecks.dll" />
     <CustomAction Id="CheckCupolaEnvironment" BinaryRef="InstallerChecks" DllEntry="CheckEnvironment" Execute="immediate" Return="check" />
     <InstallUISequence><Custom Action="CheckCupolaEnvironment" Before="LaunchConditions" /></InstallUISequence>
@@ -50,6 +51,7 @@
             <RegistryValue Root="HKLM" Key="SOFTWARE\QueryFarm\Cupola" Name="InstallDirectory" Value="[INSTALLFOLDER]" Type="string" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\QueryFarm\Cupola" Name="Version" Value="[ProductVersion]" Type="string" />
           </Component>
+          <Component Id="CupolaUpdater" Guid="*" Bitness="always64"><File Source="..\artifacts\xll\Cupola.Updater.exe" /></Component>
           <Component Id="HaybarnFile" Guid="*" Bitness="always64">
             <File Source="..\artifacts\xll\haybarn.exe" />
           </Component>
@@ -82,6 +84,7 @@
     </StandardDirectory>
     <Feature Id="Complete" Title="Cupola for Excel" Level="1">
       <ComponentRef Id="ExcelLoader" />
+      <ComponentRef Id="CupolaUpdater" />
       <ComponentRef Id="HaybarnFile" />
       <ComponentRef Id="CupolaOdbcDriver" />
       <ComponentRef Id="OdbcNotices" />

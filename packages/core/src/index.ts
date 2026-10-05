@@ -20,3 +20,5 @@ export * from "./agent-experience.js";
 export * from "./agent-loop-guard.js";
 
 export * from "./ai-diagnostics.js";
+
+export * from "./auth-recovery.js";

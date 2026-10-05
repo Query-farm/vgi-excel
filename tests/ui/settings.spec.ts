@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+const productVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 import { expect, test } from "@playwright/test";
 
 for (const host of ["desktop", "office"]) {
@@ -43,7 +45,7 @@ for (const host of ["desktop", "office"]) {
       await page.screenshot({ path: `/tmp/cupola-settings-ai-${host}.png` });
       await page.getByRole("tab", { name: "About", exact: true }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(page.getByRole("tabpanel", { name: "About", exact: true })).toContainText("Version 0.5.0");
+      await expect(page.getByRole("tabpanel", { name: "About", exact: true })).toContainText(`Version ${productVersion}`);
       await expect.poll(() => page.locator(".about-content .about-mark").evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
       await page.screenshot({ path: `/tmp/cupola-settings-about-${host}.png` });
       await page.getByRole("tab", { name: "AI settings", exact: true }).click();

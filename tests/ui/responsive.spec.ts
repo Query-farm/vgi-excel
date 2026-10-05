@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+const productVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 import { expect, test, type Page } from "@playwright/test";
 
 const widths = [300, 320, 340, 400, 720, 1060];
@@ -498,7 +500,7 @@ for (const host of ["desktop", "office"] as const) {
     const about = page.getByRole("tabpanel", { name: "About", exact: true });
     await expect(about).toBeVisible();
     await expect(about.getByRole("link", { name: "Query.Farm" })).toHaveAttribute("href", "https://query.farm");
-    await expect(about).toContainText("Version 0.5.0");
+    await expect(about).toContainText(`Version ${productVersion}`);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("tab", { name: "Connections", exact: true }).click();
     await page.getByLabel("Connection name", { exact: true }).fill("saved-test");

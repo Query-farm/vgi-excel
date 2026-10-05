@@ -16,11 +16,25 @@ internal static class Program
         var root = Path.Combine(Path.GetTempPath(), "vgi-excel-tests-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("VGI_EXCEL_CONFIG_HOME", root);
         Environment.SetEnvironmentVariable("VGI_EXCEL_ANTHROPIC_CREDENTIAL_TARGET", "QueryFarm/VgiExcel/Tests/" + Guid.NewGuid().ToString("N"));
+        var priorExtension = Environment.GetEnvironmentVariable("VGI_EXTENSION_PATH");
         try
         {
+            if (args.Length == 2 && args[0] == "--verify-update-publisher") { InstallerTrust.VerifyPublisher(args[1]); Console.WriteLine("PASS: official installer Authenticode publisher and timestamp trust"); return 0; }
+            if (args.Length == 2 && args[0] == "--verify-update-identity") { InstallerTrust.VerifyIdentity(args[1], new UpdateRelease { Tag = "v" + ProductInfo.Version + "-" + ProductInfo.Build }); Console.WriteLine("PASS: MSI update product and build identity"); return 0; }
             if (args.Contains("--power-query") || args.Contains("--power-query-profile")) { PowerQueryLiveTests(root, args.Contains("--power-query-profile")); return 0; }
             if (args.Contains("--workbook-tables")) { WorkbookTableTests(root); return 0; }
             if (args.Contains("--native-sessions")) { NativeSessionTests(); return 0; }
+            // SQL-construction tests need a packaged path, not a runnable binary.
+            if (string.IsNullOrWhiteSpace(priorExtension)) {
+                Directory.CreateDirectory(root);
+                var extension = Path.Combine(root, "vgi.duckdb_extension");
+                File.WriteAllText(extension, "policy-fixture");
+                Environment.SetEnvironmentVariable("VGI_EXTENSION_PATH", extension);
+            }
+            Throws<InvalidOperationException>(() => HaybarnClient.BundledExtensionLoadScript(Path.Combine(root, "missing.duckdb_extension")), "missing extension fails without a repository download");
+            var extensionScript = HaybarnClient.BundledExtensionLoadScript(Environment.GetEnvironmentVariable("VGI_EXTENSION_PATH")!);
+            True(extensionScript.StartsWith("LOAD '") && !extensionScript.Contains("INSTALL"), "packaged extension loaded by explicit path");
+            UpdaterTests.Run();
             ConnectionProbeTests();
             SessionCacheTests();
             ConnectionPolicyTests(root);
@@ -52,6 +66,7 @@ internal static class Program
         }
         finally
         {
+            Environment.SetEnvironmentVariable("VGI_EXTENSION_PATH", priorExtension);
             try { AgentCredentialStore.Delete(); } catch { }
             // WebView2 releases its isolated profile asynchronously after the window closes.
             for (var attempt = 0; Directory.Exists(root); attempt++)
@@ -322,7 +337,7 @@ internal static class Program
 
     private static void BridgePolicyTests()
     {
-        Equal("0.5.0", ProductInfo.Version, "native product version");
+        Equal("0.5.1", ProductInfo.Version, "native product version");
         var product = JObject.FromObject(WorkbenchBridge.Invoke("app.info", new JObject()).GetAwaiter().GetResult()!, WorkbenchBridge.Serializer);
         Equal(ProductInfo.Name, product.Value<string>("name"), "bridge product name");
         Equal(ProductInfo.Version, product.Value<string>("version"), "bridge product version");

@@ -1,3 +1,4 @@
+import { assetPath as vgiAssetPath, verifyArtifact, wasmPlatforms } from "./lib/vgi-artifacts.mjs";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -18,6 +19,7 @@ if (manifest.includes("localhost")) throw new Error("The packaged Office manifes
 for (const required of ["duckdb-coi.wasm", "duckdb-browser-coi.worker.js"]) {
   await readFile(resolve("apps/office/dist/haybarn", required));
 }
+for (const platform of Object.values(wasmPlatforms)) verifyArtifact(await readFile(resolve("apps/office/dist", vgiAssetPath(platform))), platform);
 console.log("Office package ready in apps/office/dist.");
 console.log("The production host must send Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp.");
 

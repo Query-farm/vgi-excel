@@ -269,7 +269,7 @@ diff --git a/src/odbc_driver/connect/cupola_connection.cpp b/src/odbc_driver/con
 new file mode 100644
 --- /dev/null
 +++ b/src/odbc_driver/connect/cupola_connection.cpp
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,342 @@
 +#include "cupola_connection.hpp"
 +
 +#include "duckdb/common/string_util.hpp"
@@ -585,7 +585,7 @@ new file mode 100644
 +		}
 +	}
 +	attach.value += ")";
-+	// Load the signed extension shipped alongside this driver, with the normal Haybarn repository as fallback.
++	// Load only the signed extension shipped alongside this driver.
 +	HMODULE module = nullptr;
 +	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 +	                   (LPCWSTR)&AttachCupolaConnection, &module);
@@ -595,12 +595,9 @@ new file mode 100644
 +		throw std::runtime_error("Cupola driver directory is unavailable.");
 +	std::wstring extension(path, n);
 +	extension = extension.substr(0, extension.find_last_of(L"\\/")) + L"\\vgi.duckdb_extension";
-+	if (GetFileAttributesW(extension.c_str()) != INVALID_FILE_ATTRIBUTES)
-+		Run(c, "LOAD " + Quote(Utf8(extension)), "Cupola VGI extension could not be loaded.");
-+	else {
-+		Run(c, "INSTALL vgi FROM community", "Cupola VGI extension could not be installed.");
-+		Run(c, "LOAD vgi", "Cupola VGI extension could not be loaded.");
-+	}
++	if (GetFileAttributesW(extension.c_str()) == INVALID_FILE_ATTRIBUTES)
++		throw std::runtime_error("A required Cupola component is missing. Repair or reinstall Cupola for Excel.");
++	Run(c, "LOAD " + Quote(Utf8(extension)), "Cupola could not load a required component. Repair or reinstall Cupola for Excel.");
 +	Run(c, attach.value, "Cupola could not attach the HTTPS catalog. Check the connection and sign-in in Cupola.");
 +	// One identity row per attachment; version 1 remains compatible for single catalogs.
 +	auto option_json = yyjson_is_obj(options) ? Dump(options) : "{}";

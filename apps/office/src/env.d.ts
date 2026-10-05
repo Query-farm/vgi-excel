@@ -1,3 +1,4 @@
+declare const __VGI_EXTENSION_PATHS__: Record<"mvp" | "eh" | "coi", string>;
 declare const __APP_VERSION__: string;
 declare const __BUILD_ID__: string;
 

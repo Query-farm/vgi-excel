@@ -80,6 +80,25 @@ Do not paste tokens, passwords, or API keys into reports.
 Record host/browser versions and the outcome of each step. Mark protected sign-in
 and actual workbook save/reopen as pending until these checks are observed.
 
+## Marketplace legal links
+
+Use the existing Query Farm pages for marketplace preparation:
+
+- Privacy policy: https://query.farm/legal/privacy/
+- Terms of Service: https://query.farm/legal/terms/
+
+These are the selected URLs; their selection does not establish marketplace
+approval. Before submission, extend the privacy policy's coverage to name
+Cupola for Excel and describe VGI connections, optional Anthropic processing,
+credential storage, and error-only Sentry reporting. The current Terms of
+Service cover the website and explicitly exclude software licensing. They must
+identify and link Cupola's applicable software license, or the submission's
+EULA field must link that license directly. Do not treat website terms as the
+software license.
+
+The website content and Partner Center submission have not been changed by
+recording these links here.
+
 ## Repeatable checks
 
 ```sh

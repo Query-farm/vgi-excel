@@ -37,18 +37,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: cupola-release
-    permissions:
-      # GitHub requires write access to see draft release assets.
-      contents: write
     steps:
-      - name: Download approved VGI extension
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download cupola-native-inputs-v1 --repo "$GITHUB_REPOSITORY" --pattern vgi.duckdb_extension --dir approved-native
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Download and verify approved VGI extension
+        run: node scripts/prepare-vgi.mjs --platform=windows_amd64 --output=approved-native
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cupola-approved-native
-          path: approved-native/vgi.duckdb_extension
+          path: approved-native/windows_amd64/vgi.duckdb_extension
           if-no-files-found: error
           retention-days: 1
   build:
@@ -75,7 +74,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: artifacts/native-inputs
-          key: cupola-native-windows-2022-${{ hashFiles('windows/native-inputs.lock.json', 'windows/odbc/cupola.patch', 'windows/build-native-inputs.py') }}
+          key: cupola-native-windows-2022-${{ hashFiles('vgi-extensions.lock.json', 'windows/native-inputs.lock.json', 'windows/odbc/cupola.patch', 'windows/build-native-inputs.py') }}
       - name: Download approved VGI extension
         if: steps.native.outputs.cache-hit != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -200,6 +199,17 @@ jobs:
           ./tests/packaging/msi-smoke.ps1 -MsiPath artifacts/deployment/CupolaForExcel.msi
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ./tests/packaging/deployment-contract.ps1 -MsiPath artifacts/deployment/CupolaForExcel.msi
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Verify updater trust against signed payloads
+        shell: powershell
+        env:
+          VGI_EXCEL_TELEMETRY: '0'
+        run: |
+          dotnet run --project windows/Vgi.ExcelDna.Tests -c Release -- --verify-update-publisher artifacts/deployment/CupolaForExcel.msi
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --project windows/Vgi.ExcelDna.Tests -c Release -- --verify-update-publisher artifacts/xll/Cupola.Updater.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --project windows/Vgi.ExcelDna.Tests -c Release -- --verify-update-identity artifacts/deployment/CupolaForExcel.msi
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Create draft GitHub release
         shell: powershell

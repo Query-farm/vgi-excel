@@ -1,3 +1,4 @@
+import { assetPath, prepareArtifact, verifyArtifact, vgiLock, wasmPlatforms } from "../../scripts/lib/vgi-artifacts.mjs";
 import { defineConfig, type PluginOption, type UserConfig, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
@@ -50,6 +51,48 @@ function copyHaybarnArtifacts(): PluginOption {
   };
 }
 
+function bundledVgiArtifacts(): PluginOption {
+  const files = new Map<string, string>();
+  async function prepare(): Promise<void> {
+    if (process.env.VITEST) return;
+    const packageVersion = JSON.parse(readFileSync(resolve(haybarnSource, "../package.json"), "utf8")).version;
+    if (packageVersion !== vgiLock.wasmPackageVersion) throw new Error("Update and qualify the VGI lock before changing Haybarn WASM.");
+    await Promise.all(Object.values(wasmPlatforms).map(async platform => {
+      files.set(assetPath(platform), await prepareArtifact(platform));
+    }));
+  }
+  return {
+    name: "bundle-pinned-vgi",
+    buildStart: prepare,
+    async configureServer(server) {
+      await prepare();
+      server.middlewares.use((req, res, next) => {
+        const path = req.url?.split("?")[0].replace(/^\//, "") ?? "";
+        if (!path.startsWith("vgi/")) return next();
+        const file = files.get(path);
+        if (!file || !["GET", "HEAD"].includes(req.method ?? "")) { res.statusCode = 404; res.end(); return; }
+        res.setHeader("Content-Type", "application/wasm");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Content-Length", statSync(file).size);
+        if (req.method === "HEAD") { res.end(); return; }
+        const stream = createReadStream(file);
+        stream.on("error", error => res.destroy(error));
+        res.on("close", () => stream.destroy());
+        stream.pipe(res);
+      });
+    },
+    writeBundle(options) {
+      for (const platform of Object.values(wasmPlatforms)) {
+        const relative = assetPath(platform), source = files.get(relative);
+        if (!source) throw new Error(`Packaged VGI is missing: ${platform}`);
+        verifyArtifact(readFileSync(source), platform);
+        const target = resolve(options.dir ?? resolve(here, "dist"), relative);
+        mkdirSync(dirname(target), { recursive: true }); cpSync(source, target);
+      }
+    },
+  };
+}
+
 // Excel fetches this public metadata from its own origin before starting the
 // shared runtime. Keep cross-origin access scoped to metadata, not dev sources.
 function customFunctionsMetadataCors(): PluginOption {
@@ -86,6 +129,7 @@ export default defineConfig(async ({ command, isPreview }) => {
     plugins: [
       react(),
       copyHaybarnArtifacts(),
+      bundledVgiArtifacts(),
       customFunctionsMetadataCors(),
       ...(uploadSourceMaps ? sentryVitePlugin({
         authToken: process.env.SENTRY_AUTH_TOKEN,
@@ -96,7 +140,7 @@ export default defineConfig(async ({ command, isPreview }) => {
         telemetry: false,
       }) as unknown as PluginOption[] : []),
     ] as PluginOption[],
-    define: { __APP_VERSION__: JSON.stringify(product.version), __BUILD_ID__: JSON.stringify(product.cupolaBuild) },
+    define: { __APP_VERSION__: JSON.stringify(product.version), __BUILD_ID__: JSON.stringify(product.cupolaBuild), __VGI_EXTENSION_PATHS__: JSON.stringify(Object.fromEntries(Object.entries(wasmPlatforms).map(([bundle, platform]) => [bundle, assetPath(platform)]))) },
     server: { https, cors: false },
     preview: { cors: false, headers: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" } },
     build: {
