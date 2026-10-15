@@ -183,7 +183,7 @@ catalog. A driver display name alone is insufficient. `CUPOLA_ODBC_DRIVER_NAME`
 can override the registered name, but the selected driver must pass this check.
 
 The driver source is `~/Development/haybarn/haybarn-odbc` (Cupola changes on
-base `82989a8db00573bbeb2da32e5b2fcc3baa7b6cd6`). Build from an x64 Visual Studio
+base `c56db5053e3f0987c07e991c0c9b3c7ace196b97`, tag `haybarn-v1.5.6.0`). Build from an x64 Visual Studio
 Developer Command Prompt with CMake/Ninja:
 
 ```bat

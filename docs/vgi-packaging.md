@@ -10,8 +10,8 @@ Loaded native extensions also require a fresh host process to change versions.
 
 `vgi-extensions.lock.json` is the source of truth. It records the extension
 revision, Haybarn engine ABI, WASM npm package version, and the URL, decoded size,
-and SHA-256 of each platform artifact. The current selection is VGI `ef59ff8`
-for ABI `v1.5.5`, with Haybarn WASM `1.5.5-rc4`:
+and SHA-256 of each platform artifact. The current selection is VGI `88cd9f1`
+for ABI `v1.5.6`, with Haybarn WASM `1.5.6-rc1`:
 
 | Host | Artifact platform |
 | --- | --- |

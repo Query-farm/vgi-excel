@@ -6,8 +6,8 @@ Haybarn is independent of and not endorsed by the DuckDB Foundation.
 DuckDB is a trademark of the DuckDB Foundation
 (https://duckdb.org/trademark_guidelines).
 
-This repository is a hard fork of duckdb/duckdb-odbc (tag v1.5.5.0, which
-corresponds to the DuckDB 1.5.5 engine). The upstream MIT LICENSE is preserved
+This repository is a hard fork of duckdb/duckdb-odbc (tag v1.5.6.0, which
+corresponds to the DuckDB 1.5.6 engine). The upstream MIT LICENSE is preserved
 verbatim. Modifications introduced by Haybarn:
 
   - Driver identity rebranded: the registered ODBC driver name

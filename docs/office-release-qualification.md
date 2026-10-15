@@ -5,6 +5,14 @@ Passing browser tests does not establish that every Excel host is qualified.
 
 ## Hosted deployment evidence (2026-09-30)
 
+Marketplace package acceptance subsequently rejected the 128×128
+`HighResolutionIconUrl` image. Manifest 1.0.0.2 uses a 64×64 PNG, with a
+regression check in `tests/hosting/manifest-icons.test.mjs` for both manifest
+icon dimensions. The corrected package ships in Cupola 0.5.2 build 20261015.1; publication and
+Partner Center acceptance remain pending. Publish the new icon and manifest
+together before retrying the upload. The earlier manifest-validator success
+below did not establish marketplace package acceptance.
+
 Cupola 0.5.0 build 20260930.3 is hosted at `https://cupola.query.farm`,
 with installation manifest version 1.0.0.1 at `/manifest.xml`.
 

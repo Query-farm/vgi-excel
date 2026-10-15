@@ -1,15 +1,15 @@
 {
   "haybarn": {
     "repository": "https://github.com/Query-farm-haybarn/haybarn.git",
-    "commit": "105edd31b57fe7e6d32ee648efad562e45a9f908",
-    "version": "1.5.5-rc1",
-    "cliWheelUrl": "https://files.pythonhosted.org/packages/3e/6b/ce73cfb33dc4bb934471c1903a6a1e1d2b2c3fec49d35e5547ddb8093bf0/haybarn_cli-1.5.5rc1-py3-none-win_amd64.whl",
-    "cliWheelSha256": "3e36fbf57a14ee3a90fcd9ffdf8aa08409d5feaa997ee65ff2e43ea199ce5e7a",
-    "cliSha256": "3516459f7882cbf7a0e4ff9fce300d4d817a5d689a59702b31cd310a943ea483"
+    "commit": "5b8b06dfbc31bdf47d4d9f95a668debd07c2a835",
+    "version": "1.5.6-rc1",
+    "cliWheelUrl": "https://files.pythonhosted.org/packages/2c/00/1896d031dade4b66bf9b394e430632d556675b61af079f76a0f9b9738435/haybarn_cli-1.5.6rc1-py3-none-win_amd64.whl",
+    "cliWheelSha256": "e28b6cdfe1d549437ee463fd0a70a570254b48e5534d34947b0c0ef6fbc66b1c",
+    "cliSha256": "a0777e33925555162f7bfa7d28245714bd80b5dd7392cbecb4be559e6f9f83cf"
   },
   "odbc": {
     "repository": "https://github.com/Query-farm-haybarn/haybarn-odbc.git",
-    "commit": "82989a8db00573bbeb2da32e5b2fcc3baa7b6cd6",
+    "commit": "c56db5053e3f0987c07e991c0c9b3c7ace196b97",
     "patch": "windows/odbc/cupola.patch"
   },
   "vgi": {

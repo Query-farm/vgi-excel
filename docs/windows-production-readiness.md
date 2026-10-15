@@ -45,7 +45,7 @@ Click-to-Run Excel. The release is a candidate until the gates below pass.
 - Approved distribution of the pinned signed VGI extension. Its current checksum
   is recorded in `windows/native-inputs.lock.json`; the release runner must obtain
   that exact file from an approved artifact store. The tested Haybarn input is
-  `1.5.5-rc1`, which must be explicitly qualified for the production release.
+  `1.5.6-rc1`, which must be explicitly qualified for the production release.
 - Production artifact publication and pilot assignment to an actual Intune tenant.
 
 ## Candidate validation recorded on 2026-09-22

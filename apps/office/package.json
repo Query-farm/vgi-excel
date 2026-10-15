@@ -1,6 +1,6 @@
 {
   "name": "@query-farm/vgi-excel-office",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,8 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@haybarn/haybarn-wasm": "1.5.5-rc4",
-    "@query-farm/vgi-excel-core": "0.5.1",
+    "@haybarn/haybarn-wasm": "1.5.6-rc1",
+    "@query-farm/vgi-excel-core": "0.5.2",
     "@sentry/react": "^10.75.0",
     "apache-arrow": "^17.0.0",
     "lucide-react": "^1.47.0",

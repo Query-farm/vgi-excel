@@ -5,13 +5,13 @@
   xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
   xsi:type="TaskPaneApp">
   <Id>8d527de9-c26e-4ba0-9142-d72e438abdc6</Id>
-  <Version>1.0.0.1</Version>
+  <Version>1.0.0.2</Version>
   <ProviderName>Query Farm LLC</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Cupola for Excel"/>
   <Description DefaultValue="Explore and query secure HTTPS VGI catalogs from Excel."/>
   <IconUrl DefaultValue="https://localhost:3000/icons/cupola-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://localhost:3000/icons/cupola-128.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/icons/cupola-64.png"/>
   <SupportUrl DefaultValue="https://query.farm"/>
   <AppDomains>
     <AppDomain>https://query.farm</AppDomain>

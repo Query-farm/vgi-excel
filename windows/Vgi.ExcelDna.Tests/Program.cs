@@ -337,7 +337,7 @@ internal static class Program
 
     private static void BridgePolicyTests()
     {
-        Equal("0.5.1", ProductInfo.Version, "native product version");
+        Equal("0.5.2", ProductInfo.Version, "native product version");
         var product = JObject.FromObject(WorkbenchBridge.Invoke("app.info", new JObject()).GetAwaiter().GetResult()!, WorkbenchBridge.Serializer);
         Equal(ProductInfo.Name, product.Value<string>("name"), "bridge product name");
         Equal(ProductInfo.Version, product.Value<string>("version"), "bridge product version");

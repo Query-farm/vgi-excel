@@ -1,8 +1,8 @@
 {
   "name": "@query-farm/vgi-excel",
   "private": true,
-  "version": "0.5.1",
-  "cupolaBuild": "20261005.2",
+  "version": "0.5.2",
+  "cupolaBuild": "20261015.1",
   "workspaces": [
     "apps/office",
     "apps/desktop",
@@ -35,5 +35,5 @@
     "@sentry/vite-plugin": "^5.4.0",
     "wrangler": "4.100.0"
   },
-  "officeManifestVersion": "1.0.0.1"
+  "officeManifestVersion": "1.0.0.2"
 }
